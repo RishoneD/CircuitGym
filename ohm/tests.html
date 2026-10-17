@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>בדיקות: מחולל תרגילי חוק אוהם</title>
+<title>בדיקות: תרגול מעגל טורי, מקבילי ומעורב</title>
 <style>
   body { font-family: "Segoe UI", Arial, sans-serif; margin: 16px; color: #1f2937; background: #f4f6f9; }
   h1 { font-size: 20px; } h2 { font-size: 17px; margin-top: 24px; }
@@ -168,6 +168,26 @@
     const o = { level: 4, types: ['M'], power: true, prefixes: true, seed: 12345 };
     const a = E.makeExercise(o), b = E.makeExercise(o);
     ok(a.answer === b.answer && E.Draw.render(a).svg === E.Draw.render(b).svg, 'same seed -> same exercise');
+  }
+
+  // ---------- דף הנחיתה: גרסה וקישורים ----------
+  {
+    const landUrl = new URL('../index.html', location.href);
+    const land = await (await fetch(landUrl, { cache: 'no-store' })).text();
+    const m = /const VERSION = '(v\d+\.\d+)'/.exec(land);
+    ok(m && m[1] === E.VERSION, `site version mismatch: landing ${m && m[1]} vs module ${E.VERSION}`);
+    const pages = [[landUrl, land], [new URL('index.html', location.href), html]];
+    for (const [base, src] of pages) {
+      const links = [...new DOMParser().parseFromString(src, 'text/html').querySelectorAll('a[href]')];
+      ok(links.length > 0, 'no links on ' + base.pathname);
+      for (const a of links) {
+        const href = a.getAttribute('href');
+        ok(!/^(\/|[a-z]+:)/i.test(href), `non-relative link "${href}" on ${base.pathname}`);
+        const r = await fetch(new URL(href, base), { cache: 'no-store' });
+        ok(r.ok, `broken link "${href}" on ${base.pathname} (${r.status})`);
+        log(`link ${base.pathname} -> ${href}: ${r.status}`);
+      }
+    }
   }
 
   // ---------- ריצה המונית ----------
