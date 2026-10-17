@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>בדיקות: מחולל תרגילי חוק אוהם</title>
+<style>
+  body { font-family: "Segoe UI", Arial, sans-serif; margin: 16px; color: #1f2937; background: #f4f6f9; }
+  h1 { font-size: 20px; } h2 { font-size: 17px; margin-top: 24px; }
+  pre { background: #fff; border: 1px solid #d9dee6; border-radius: 8px; padding: 10px; direction: ltr; text-align: left; white-space: pre-wrap; font-size: 13px; }
+  .pass { color: #15803d; font-weight: bold; } .fail { color: #b42318; font-weight: bold; }
+  .gal { display: flex; flex-wrap: wrap; gap: 12px; }
+  figure { margin: 0; background: #fff; border: 1px solid #d9dee6; border-radius: 8px; padding: 6px; }
+  figcaption { direction: ltr; font-size: 12px; color: #6b7280; }
+  figure svg { display: block; height: auto; }
+  .phone { width: 343px; }
+  .phone figure svg { width: 100%; }
+  .phone .wrap { overflow-x: auto; }
+</style>
+</head>
+<body>
+<h1>בדיקות מנוע וגלריית ציורים</h1>
+<p>דורש שרת מקומי. פרמטר <code dir="ltr">?n=40</code> = מספר תרגילים לכל צירוף (הגדרות × רמה).</p>
+<div id="summary"></div>
+<pre id="log"></pre>
+<h2>גלריה: כל סוגי המעגלים והרמות</h2>
+<div id="gallery" class="gal"></div>
+<h2>רוחב טלפון (343px)</h2>
+<div id="phone" class="gal"></div>
+
+<script>
+(async function () {
+  const logEl = document.getElementById('log');
+  const lines = [];
+  const log = s => { lines.push(s); };
+  const html = await (await fetch('index.html', { cache: 'no-store' })).text();
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const sc = document.createElement('script');
+  sc.textContent = doc.getElementById('engine').textContent;
+  document.head.appendChild(sc);
+  const E = window.Engine;
+
+  let pass = 0, fail = 0;
+  const failures = [];
+  function ok(cond, msg) { if (cond) pass++; else { fail++; if (failures.length < 40) failures.push(msg); } }
+  const rel = (a, b) => Math.abs(a - b) / Math.abs(b);
+  const sum = a => a.reduce((s, x) => s + x, 0);
+
+  // ---------- מאמת עצמאי: פותר רק מתוך מה שמוצג לתלמיד ----------
+  const MULT = { M: 1e6, k: 1e3, m: 1e-3, 'µ': 1e-6 };
+  function parseShown(str) {
+    const m = /^(\d+(?:\.\d+)?) (M|k|m|µ)?(Ω|V|A|W)$/.exec(str);
+    if (!m) throw new Error('bad displayed value: ' + str);
+    return Number(m[1]) * (m[2] ? MULT[m[2]] : 1);
+  }
+  function cloneTree(nd) { return nd.type === 'R' ? { type: 'R', idx: nd.idx } : { type: nd.type, children: nd.children.map(cloneTree) }; }
+  function leavesOf(nd, acc = []) { if (nd.type === 'R') acc.push(nd); else nd.children.forEach(c => leavesOf(c, acc)); return acc; }
+  function req(nd) { return nd.type === 'R' ? nd.R : nd.type === 'S' ? sum(nd.children.map(req)) : 1 / sum(nd.children.map(c => 1 / req(c))); }
+  function solveV(root, VT) {
+    const res = {};
+    (function d(nd, I) {
+      const R = req(nd);
+      if (nd.type === 'R') res[nd.idx] = { I, V: I * R };
+      else if (nd.type === 'S') nd.children.forEach(c => d(c, I));
+      else nd.children.forEach(c => d(c, I * R / req(c)));
+    })(root, VT / req(root));
+    return { IT: VT / req(root), res };
+  }
+  function verify(ex) {
+    const U = E.UNIT, a = ex.ann;
+    const shown = (x, unit) => {
+      const s = E.Units.format(x, unit, ex.prefixes, 4), v = parseShown(s);
+      ok(rel(v, x) < 1e-9, `displayed value rounded: ${x} -> "${s}" (seed ${ex.seed}, ${ex.kind})`);
+      return v;
+    };
+    const root = cloneTree(ex.circuit.root), ls = leavesOf(root);
+    ls.forEach(l => { const v = a.R[l.idx]; l.R = v == null ? null : shown(v, 'Ω'); });
+    const VT = a.VT == null ? null : shown(a.VT, 'V');
+    const k = ex.target, ext = k ? a.resExtra[k] || [] : [];
+    const given = q => { const e = ext.find(e => e.q === q && e.value != null); return e ? shown(e.value, U[q]) : null; };
+    switch (ex.kind) {
+      case 'Req': return req(root);
+      case 'IT': return solveV(root, VT).IT;
+      case 'Ik': return solveV(root, VT).res[k].I;
+      case 'Vk': return solveV(root, VT).res[k].V;
+      case 'Pk': { const r = solveV(root, VT).res[k]; return r.I * r.V; }
+      case 'PT': return VT * solveV(root, VT).IT;
+      case 'VT_IT': return shown(a.IT, 'A') / solveV(root, 1).IT;
+      case 'VT_k': { const e = ext[0]; return given(e.q) / solveV(root, 1).res[k][e.q]; }
+      case 'Rx_ohm': return given('V') / given('I');
+      case 'Rx_T': {
+        const IT = shown(a.IT, 'A'), x = ls.find(l => l.idx === k);
+        let lo = Math.log(1e-3), hi = Math.log(1e9);
+        for (let i = 0; i < 200; i++) {
+          const mid = (lo + hi) / 2; x.R = Math.exp(mid);
+          if (solveV(root, VT).IT > IT) lo = mid; else hi = mid;   // IT יורד כש-Rx עולה
+        }
+        return Math.exp((lo + hi) / 2);
+      }
+    }
+    throw new Error('unknown kind ' + ex.kind);
+  }
+  function treeChecks(ex) {
+    const root = ex.circuit.root, ls = leavesOf(root);
+    ok(ls.length === ex.n, `leaf count ${ls.length} != ${ex.n}`);
+    ok(ls.every((l, i) => l.idx === i + 1), 'leaf numbering');
+    let hasS = false, hasP = false, maxDepth = 0, bad = false;
+    (function w(nd, parent, depth) {
+      if (nd.type === 'R') return;
+      if (nd.type === 'S') hasS = true; else hasP = true;
+      maxDepth = Math.max(maxDepth, depth);
+      if (parent && parent.type === nd.type) bad = true;
+      if (nd.children.length < 2) bad = true;
+      nd.children.forEach(c => w(c, nd, depth + 1));
+    })(root, null, 1);
+    ok(!bad, `tree constraint violated (seed ${ex.seed})`);
+    ok(maxDepth <= 3, `depth ${maxDepth} > 3`);
+    if (ex.ctype === 'S') ok(root.type === 'S' && root.children.every(c => c.type === 'R'), 'series shape');
+    if (ex.ctype === 'P') ok(root.type === 'P' && root.children.every(c => c.type === 'R'), 'parallel shape');
+    if (ex.ctype === 'M') ok(hasS && hasP, `mixed must contain S and P (seed ${ex.seed})`);
+    if (ex.ctype === 'M') ok(ex.n >= 3, 'mixed with <3 resistors');
+  }
+  function drawChecks(ex, stats) {
+    const r = E.Draw.render(ex);
+    ok(!/NaN|undefined|Infinity/.test(r.svg), `bad svg (seed ${ex.seed})`);
+    const b = r.boxes;
+    ok(b.length === ex.n, 'box per resistor');
+    for (let i = 0; i < b.length; i++) for (let j = i + 1; j < b.length; j++) {
+      const A = b[i], B = b[j];
+      const ov = A.x < B.x + B.w - 0.5 && B.x < A.x + A.w - 0.5 && A.y < B.y + B.h - 0.5 && B.y < A.y + A.h - 0.5;
+      ok(!ov, `boxes R${A.idx}/R${B.idx} overlap (seed ${ex.seed}, ${ex.ctype}, L${ex.level})`);
+    }
+    for (const bx of b) for (const s of bx.labels)
+      ok(s.length * 7.8 <= bx.w - 4, `label too wide "${s}" (seed ${ex.seed})`);
+    stats.maxW = Math.max(stats.maxW, r.width); stats.maxH = Math.max(stats.maxH, r.height);
+    return r;
+  }
+
+  // ---------- יחידות ----------
+  const U = E.Units;
+  ok(U.parseNumber('2.2') === 2.2 && U.parseNumber('2,2') === 2.2 && U.parseNumber(' 15 ') === 15, 'parse point/comma');
+  ok(U.parseNumber('.5') === 0.5 && U.parseNumber('3.') === 3, 'parse .5 / 3.');
+  ['', 'abc', '1,000.5', '1.2.3', '-5', '2k', '1e3'].forEach(s => ok(isNaN(U.parseNumber(s)), 'should reject "' + s + '"'));
+  ok(U.check(2200, 2200) && U.check(2.2 * 1000, 2200), 'equivalent 2.2k = 2200');
+  ok(U.check(687.5 * 1.009, 687.5) && !U.check(687.5 * 1.011, 687.5), 'tolerance 1%');
+  ok(U.check(0.00255, 0.002553) && !U.check(0.00, 0.002553), 'small values');
+  ok(U.prefixHint(2.2, 2200) && !U.prefixHint(2300, 2200), 'prefix hint');
+  ok(U.format(0.00375, 'A', true) === '3.75 mA' && U.format(0.00375, 'A', false) === '0.00375 A', 'format current');
+  ok(U.format(2200, 'Ω', true) === '2.2 kΩ' && U.format(1000, 'Ω', true) === '1 kΩ' && U.format(470, 'Ω', true) === '470 Ω', 'format R');
+  ok(U.formatAnswer(687.5, 'Ω', false) === '687.5 Ω' && U.formatAnswer(0.0025531, 'A', false) === '0.00255 A', 'formatAnswer');
+  ok(U.formatAnswer(0.0025531, 'A', true) === '2.55 mA', 'formatAnswer prefix');
+  ok(U.isClean(0.00375) && !U.isClean(0.0037512) && U.isClean(1500), 'isClean');
+  // ---------- רמות ----------
+  ok(E.minLevel(['M']) === 2 && E.minLevel(['S', 'M']) === 1 && E.minLevel(['P']) === 1, 'minLevel');
+  ok(E.allowedTypes(['S', 'M'], 2).join() === 'S' && E.allowedTypes(['S', 'M'], 3).join() === 'S,M', 'allowedTypes');
+  {  // levelChoices(level, correct, attempt, min) -> "level:primary"
+    const lc = (...a) => E.levelChoices(...a).map(o => o.level + (o.primary ? '*' : '')).join(',');
+    ok(lc(2, true, 1, 1) === '3*,2' && lc(2, true, 2, 1) === '3*,2', 'correct 1-2: up recommended');
+    ok(lc(2, true, 3, 1) === '3,2*', 'correct on 3rd: stay recommended');
+    ok(lc(5, true, 1, 1) === '5*', 'max level: only stay');
+    ok(lc(3, false, 3, 1) === '3*,2', 'fail: stay recommended, down offered');
+    ok(lc(1, false, 3, 1) === '1*' && lc(2, false, 3, 2) === '2*', 'min level: no down');
+  }
+  ok(!E.allowedKinds(1, true).some(k => k.inverse) && E.allowedKinds(2, false).some(k => k.inverse), 'inverse from level 2');
+  ok(!E.allowedKinds(3, false).some(k => k.power) && E.allowedKinds(3, true).some(k => k.power), 'power toggle');
+  // ---------- דטרמיניזם ----------
+  {
+    const o = { level: 4, types: ['M'], power: true, prefixes: true, seed: 12345 };
+    const a = E.makeExercise(o), b = E.makeExercise(o);
+    ok(a.answer === b.answer && E.Draw.render(a).svg === E.Draw.render(b).svg, 'same seed -> same exercise');
+  }
+
+  // ---------- ריצה המונית ----------
+  const N = +(new URLSearchParams(location.search).get('n') || 40);
+  const typeSets = [['S'], ['P'], ['M'], ['S', 'P'], ['S', 'M'], ['P', 'M'], ['S', 'P', 'M']];
+  const kindStats = {}, ctypeCount = {}, dstats = { maxW: 0, maxH: 0 };
+  let total = 0, splitCount = 0;
+  const t0 = performance.now();
+  for (const types of typeSets) for (const power of [false, true]) for (const prefixes of [false, true])
+    for (let level = E.minLevel(types); level <= 5; level++) for (let i = 0; i < N; i++) {
+      const seed = (total * 2654435761 + 7) >>> 0;
+      let ex;
+      try { ex = E.makeExercise({ level, types, power, prefixes, seed }); }
+      catch (e) { ok(false, 'makeExercise threw: ' + e.message + ` (seed ${seed})`); continue; }
+      total++;
+      const ks = kindStats[ex.requestedKind] || (kindStats[ex.requestedKind] = { n: 0, tries: 0, maxTries: 0, fallback: 0 });
+      ok(!ex.fallback || ex.kind !== 'IT', `fell back to a forward question: ${ex.requestedKind} ${ex.ctype} L${ex.level} (seed ${seed})`);
+      ks.n++; ks.tries += ex.tries; ks.maxTries = Math.max(ks.maxTries, ex.tries); if (ex.fallback) ks.fallback++;
+      ctypeCount[ex.ctype] = (ctypeCount[ex.ctype] || 0) + 1;
+      ok(types.includes(ex.ctype), 'ctype from selected types');
+      ok(ex.level < 2 ? !['VT_IT', 'VT_k', 'Rx_ohm', 'Rx_T'].includes(ex.kind) : true, 'no inverse at level 1');
+      ok(power || !['Pk', 'PT'].includes(ex.kind), 'no power when off');
+      treeChecks(ex);
+      let v;
+      try { v = verify(ex); } catch (e) { ok(false, 'verify threw: ' + e.message + ` (seed ${seed})`); continue; }
+      ok(rel(v, ex.answer) < 1e-6, `answer mismatch ${ex.kind}: engine ${ex.answer} vs verifier ${v} (seed ${seed})`);
+      const last = ex.steps[ex.steps.length - 1];
+      ok(ex.steps.length > 0 && rel(last.value, ex.answer) < 1e-9, `last step != answer (${ex.kind}, seed ${seed})`);
+      ok(ex.steps.every(s => isFinite(s.value) && s.value > 0), `bad step value (seed ${seed})`);
+      {  // כל סמל בנוסחה הוא נתון או חושב בשלב קודם
+        const known = new Set(E.givensList(ex).map(g => g.sym));
+        for (const s of ex.steps) {
+          const used = (s.formula.match(/\b[RIVP]_[0-9A-Za-z]+/g) || []);
+          const missing = used.filter(u => !known.has(u));
+          ok(!missing.length, `step uses undefined ${missing.join(',')} in ${s.lhs} (${ex.kind}, seed ${seed})`);
+          known.add(s.lhs);
+        }
+        ok(known.has(ex.sym), `unknown ${ex.sym} never computed (seed ${seed})`);
+      }
+      const shownAns = parseShown(U.formatAnswer(ex.answer, ex.unit, prefixes));
+      ok(U.check(shownAns, ex.answer), `displayed answer not accepted ${U.formatAnswer(ex.answer, ex.unit, prefixes)} (seed ${seed})`);
+      ok(!U.check(ex.answer * 1.02, ex.answer) && U.check(ex.answer * 1.005, ex.answer), 'tolerance on answer');
+      if (drawChecks(ex, dstats).split) splitCount++;
+    }
+  const dt = performance.now() - t0;
+
+  log(`exercises: ${total}   time: ${(dt / 1000).toFixed(1)} s`);
+  log(`by circuit type: ${JSON.stringify(ctypeCount)}`);
+  log(`drawing: max width ${dstats.maxW.toFixed(0)}, max height ${dstats.maxH.toFixed(0)}, split loops ${splitCount}`);
+  log('\nkind        n     avgTries  maxTries  fallback');
+  Object.keys(kindStats).sort().forEach(k => {
+    const s = kindStats[k];
+    log(`${k.padEnd(10)} ${String(s.n).padStart(5)}  ${(s.tries / s.n).toFixed(1).padStart(8)}  ${String(s.maxTries).padStart(8)}  ${String(s.fallback).padStart(8)}`);
+  });
+  if (failures.length) log('\nFAILURES (first 40):\n' + failures.join('\n'));
+  logEl.textContent = lines.join('\n');
+  document.getElementById('summary').innerHTML =
+    `<p class="${fail ? 'fail' : 'pass'}">${fail ? 'נכשל' : 'עבר'}: <bdi dir="ltr">${pass} passed, ${fail} failed</bdi></p>`;
+  window.TEST_RESULT = { pass, fail, total, failures, kindStats, text: lines.join('\n') };
+
+  // ---------- גלריה ----------
+  const gal = document.getElementById('gallery'), phone = document.getElementById('phone');
+  const fig = (ex, cls) => {
+    const r = E.Draw.render(ex);
+    return `<figure><figcaption>${ex.ctype} L${ex.level} ${ex.kind} seed ${ex.seed}${ex.prefixes ? ' prefixes' : ''}</figcaption><div class="wrap">${r.svg}</div></figure>`;
+  };
+  const params = new URLSearchParams(location.search);
+  const gseed = +(params.get('gseed') || 1);
+  let out = '', ph = '';
+  [['S', 1], ['S', 3], ['S', 5], ['P', 1], ['P', 3], ['P', 5], ['M', 2], ['M', 3], ['M', 4], ['M', 5], ['M', 5], ['M', 5]].forEach(([t, l], i) => {
+    const ex = E.makeExercise({ level: l, types: [t], power: true, prefixes: i % 2 === 1, seed: gseed * 1000 + i });
+    out += fig(ex);
+  });
+  gal.innerHTML = out;
+  [['M', 5], ['S', 5], ['P', 4]].forEach(([t, l], i) => {
+    ph += `<div class="phone">${fig(E.makeExercise({ level: l, types: [t], power: false, prefixes: false, seed: gseed * 77 + i }))}</div>`;
+  });
+  phone.innerHTML = ph;
+  gal.querySelectorAll('svg').forEach(s => (s.style.width = s.getAttribute('width') + 'px'));
+  phone.querySelectorAll('svg').forEach(s => (s.style.minWidth = Math.round(s.getAttribute('width') * 0.78) + 'px'));
+})().catch(e => { document.getElementById('log').textContent = 'ERROR: ' + e.stack; window.TEST_RESULT = { error: String(e.stack) }; });
+</script>
+</body>
+</html>
