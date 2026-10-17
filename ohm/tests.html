@@ -120,19 +120,33 @@
     if (ex.ctype === 'M') ok(hasS && hasP, `mixed must contain S and P (seed ${ex.seed})`);
     if (ex.ctype === 'M') ok(ex.n >= 3, 'mixed with <3 resistors');
   }
-  function drawChecks(ex, stats) {
-    const r = E.Draw.render(ex);
-    ok(!/NaN|undefined|Infinity/.test(r.svg), `bad svg (seed ${ex.seed})`);
+  function drawOne(ex, stats, mode) {
+    const r = E.Draw.render(ex, mode ? { mode } : undefined);
+    const tag = `(seed ${ex.seed}, ${ex.ctype}, L${ex.level}, ${mode || 'random'})`;
+    ok(!/NaN|undefined|Infinity/.test(r.svg), `bad svg ${tag}`);
     const b = r.boxes;
-    ok(b.length === ex.n, 'box per resistor');
+    ok(b.length === ex.n, `box per resistor ${tag}`);
+    ok(b.map(x => x.idx).sort((p, q) => p - q).join() === ex.circuit.leaves.map(l => l.idx).join(), `each resistor drawn once ${tag}`);
     for (let i = 0; i < b.length; i++) for (let j = i + 1; j < b.length; j++) {
       const A = b[i], B = b[j];
       const ov = A.x < B.x + B.w - 0.5 && B.x < A.x + A.w - 0.5 && A.y < B.y + B.h - 0.5 && B.y < A.y + A.h - 0.5;
-      ok(!ov, `boxes R${A.idx}/R${B.idx} overlap (seed ${ex.seed}, ${ex.ctype}, L${ex.level})`);
+      ok(!ov, `boxes R${A.idx}/R${B.idx} overlap ${tag}`);
     }
-    for (const bx of b) for (const s of bx.labels)
-      ok(s.length * 7.8 <= bx.w - 4, `label too wide "${s}" (seed ${ex.seed})`);
-    stats.maxW = Math.max(stats.maxW, r.width); stats.maxH = Math.max(stats.maxH, r.height);
+    for (const bx of b) {
+      ok(bx.x >= 0 && bx.y >= 0 && bx.x + bx.w <= r.width + 0.5 && bx.y + bx.h <= r.height + 0.5, `R${bx.idx} outside the drawing ${tag}`);
+      for (const s of bx.labels) ok(s.length * 7.8 <= bx.labelRoom + 0.5, `label too wide "${s}" ${tag}`);
+    }
+    const st = stats[mode || 'random'] || (stats[mode || 'random'] = { maxW: 0, maxH: 0, n: 0, vertical: 0, split: 0 });
+    st.n++; st.maxW = Math.max(st.maxW, r.width); st.maxH = Math.max(st.maxH, r.height);
+    if (r.vertical) st.vertical++; if (r.split) st.split++;
+    return r;
+  }
+  function drawChecks(ex, stats) {
+    drawOne(ex, stats, 'classic');
+    const v = drawOne(ex, stats, 'vertical');
+    ok(v.vertical, `vertical mode has a vertical block (seed ${ex.seed})`);
+    const r = drawOne(ex, stats, null);
+    ok(E.Draw.render(ex).svg === r.svg, `drawing is deterministic (seed ${ex.seed})`);
     return r;
   }
 
@@ -193,8 +207,8 @@
   // ---------- ריצה המונית ----------
   const N = +(new URLSearchParams(location.search).get('n') || 40);
   const typeSets = [['S'], ['P'], ['M'], ['S', 'P'], ['S', 'M'], ['P', 'M'], ['S', 'P', 'M']];
-  const kindStats = {}, ctypeCount = {}, dstats = { maxW: 0, maxH: 0 };
-  let total = 0, splitCount = 0;
+  const kindStats = {}, ctypeCount = {}, dstats = {};
+  let total = 0;
   const t0 = performance.now();
   for (const types of typeSets) for (const power of [false, true]) for (const prefixes of [false, true])
     for (let level = E.minLevel(types); level <= 5; level++) for (let i = 0; i < N; i++) {
@@ -230,13 +244,14 @@
       const shownAns = parseShown(U.formatAnswer(ex.answer, ex.unit, prefixes));
       ok(U.check(shownAns, ex.answer), `displayed answer not accepted ${U.formatAnswer(ex.answer, ex.unit, prefixes)} (seed ${seed})`);
       ok(!U.check(ex.answer * 1.02, ex.answer) && U.check(ex.answer * 1.005, ex.answer), 'tolerance on answer');
-      if (drawChecks(ex, dstats).split) splitCount++;
+      drawChecks(ex, dstats);
     }
   const dt = performance.now() - t0;
 
   log(`exercises: ${total}   time: ${(dt / 1000).toFixed(1)} s`);
   log(`by circuit type: ${JSON.stringify(ctypeCount)}`);
-  log(`drawing: max width ${dstats.maxW.toFixed(0)}, max height ${dstats.maxH.toFixed(0)}, split loops ${splitCount}`);
+  for (const [m, d] of Object.entries(dstats))
+    log(`drawing ${m.padEnd(8)}: max width ${d.maxW.toFixed(0)}, max height ${d.maxH.toFixed(0)}, with vertical ${(100 * d.vertical / d.n).toFixed(0)}%, split ${(100 * d.split / d.n).toFixed(0)}%`);
   log('\nkind        n     avgTries  maxTries  fallback');
   Object.keys(kindStats).sort().forEach(k => {
     const s = kindStats[k];
@@ -250,16 +265,16 @@
 
   // ---------- גלריה ----------
   const gal = document.getElementById('gallery'), phone = document.getElementById('phone');
-  const fig = (ex, cls) => {
-    const r = E.Draw.render(ex);
-    return `<figure><figcaption>${ex.ctype} L${ex.level} ${ex.kind} seed ${ex.seed}${ex.prefixes ? ' prefixes' : ''}</figcaption><div class="wrap">${r.svg}</div></figure>`;
+  const fig = (ex, mode) => {
+    const r = E.Draw.render(ex, mode ? { mode } : undefined);
+    return `<figure><figcaption>${ex.ctype} L${ex.level} ${ex.kind} seed ${ex.seed}${ex.prefixes ? ' prefixes' : ''}${mode ? ' ' + mode : ''}</figcaption><div class="wrap">${r.svg}</div></figure>`;
   };
   const params = new URLSearchParams(location.search);
   const gseed = +(params.get('gseed') || 1);
   let out = '', ph = '';
   [['S', 1], ['S', 3], ['S', 5], ['P', 1], ['P', 3], ['P', 5], ['M', 2], ['M', 3], ['M', 4], ['M', 5], ['M', 5], ['M', 5]].forEach(([t, l], i) => {
     const ex = E.makeExercise({ level: l, types: [t], power: true, prefixes: i % 2 === 1, seed: gseed * 1000 + i });
-    out += fig(ex);
+    out += fig(ex, 'classic') + fig(ex, 'vertical');
   });
   gal.innerHTML = out;
   [['M', 5], ['S', 5], ['P', 4]].forEach(([t, l], i) => {

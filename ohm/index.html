@@ -145,7 +145,7 @@
 (function (global) {
   'use strict';
 
-  const VERSION = 'v1.1';
+  const VERSION = 'v1.2';
   const MAX_LEVEL = 5;
   const MAX_ATTEMPTS = 3;
   const TOL = 0.01;        // סטייה יחסית מותרת בבדיקת תשובה (1%)
@@ -542,12 +542,21 @@
   }
 
   // ---------------- Draw (SVG, box layout) ----------------
+  // כל בלוק מצויר בכיוון o: 'H' (הזרם זורם ימינה) או 'V' (הזרם זורם למטה).
+  // הפריסה נעשית בקואורדינטות מקומיות: a לאורך כיוון הזרם, c לרוחב (ציר החוט).
+  // V הוא שיקוף של H סביב האלכסון, חוץ מהתוויות של נגד אנכי שנכתבות מימינו.
+  // box: { w: אורך לאורך הזרם, up: מרחק לצד c השלילי (מעל / משמאל), down: לצד החיובי (מתחת / מימין) }
   const DR = { RW: 124, LEAD: 37, ZZ: 50, AMP: 8, UP: 30, DOWN: 16, EXTRA: 20, STUB: 22, VGAP: 14,
-               M: 16, LABEL_W: 120, SPLIT_W: 400 };
+               RV: 100, VLEAD: 25, VPAD: 14, VLINE: 18, CH: 7.8,
+               M: 16, LABEL_W: 120, SPLIT_W: 400, MAX_W_VERT: 700, P_VERT: 0.5 };
   const rd = x => Math.round(x * 10) / 10;
   const ln = (x1, y1, x2, y2) => `<line x1="${rd(x1)}" y1="${rd(y1)}" x2="${rd(x2)}" y2="${rd(y2)}"/>`;
   const dot = (x, y) => `<circle class="ckt-fill" cx="${rd(x)}" cy="${rd(y)}" r="3.5"/>`;
-  const arrow = (tx, y, dir) => `<path class="ckt-fill" d="M${rd(tx)},${rd(y)} l${-10 * dir},-5 v10 z"/>`;
+  const arrowH = (tx, y, dir) => `<path class="ckt-fill" d="M${rd(tx)},${rd(y)} l${-10 * dir},-5 v10 z"/>`;
+  const arrowV = (x, ty, dir) => `<path class="ckt-fill" d="M${rd(x)},${rd(ty)} l-5,${-10 * dir} h10 z"/>`;
+  const pt = (o, a, c) => (o === 'H' ? [a, c] : [c, a]);
+  const lnO = (o, a1, c1, a2, c2) => ln(...pt(o, a1, c1), ...pt(o, a2, c2));
+  const dotO = (o, a, c) => dot(...pt(o, a, c));
   function svgLabel(x, y, sym, val, anchor) {
     const i = sym.indexOf('_');
     const v = val == null ? '<tspan class="ckt-q">?</tspan>' : val;
@@ -555,92 +564,144 @@
       `<tspan dy="4" font-size="11">${sym.slice(i + 1)}</tspan><tspan dy="-4"> = ${v}</tspan></text>`;
   }
   const plainLabel = (sym, val) => sym.replace('_', '') + ' = ' + (val == null ? '?' : val);
+  // תוויות נגד: שם וערך, ואחריהן זרם/מתח/הספק נתונים או נעלמים
+  function resLabels(nd, ctx) {
+    const ann = ctx.ann, rv = ann.R[nd.idx] == null ? null : ctx.fmt(nd.R, 'Ω');
+    return [{ sym: 'R_' + nd.idx, val: rv }].concat((ann.resExtra[nd.idx] || []).map(e =>
+      ({ sym: e.q + '_' + nd.idx, val: e.value == null ? null : ctx.fmt(e.value, UNIT[e.q]), q: e.q })));
+  }
 
-  function measure(nd, ann) {
+  function measure(nd, ctx, o) {
     if (nd.type === 'R') {
-      const k = (ann.resExtra[nd.idx] || []).length;
-      return (nd.box = { w: DR.RW, up: DR.UP, down: DR.DOWN + (k ? k * DR.EXTRA + 8 : 0) });
+      const labs = resLabels(nd, ctx);
+      if (o === 'H') {
+        const k = labs.length - 1;
+        return (nd.box = { w: DR.RW, up: DR.UP, down: DR.DOWN + (k ? k * DR.EXTRA + 8 : 0) });
+      }
+      const lw = Math.max(...labs.map(l => plainLabel(l.sym, l.val).length)) * DR.CH + 6;
+      return (nd.box = { w: DR.RV, up: DR.VPAD, down: DR.VPAD + 4 + lw, lw });
     }
-    const bs = nd.children.map(c => measure(c, ann));
+    const bs = nd.children.map(c => measure(c, ctx, o));
     if (nd.type === 'S')
       return (nd.box = { w: sum(bs.map(b => b.w)), up: Math.max(...bs.map(b => b.up)), down: Math.max(...bs.map(b => b.down)) });
     const inner = Math.max(...bs.map(b => b.w)), offs = [0];
     for (let i = 1; i < bs.length; i++) offs.push(offs[i - 1] + bs[i - 1].down + DR.VGAP + bs[i].up);
     return (nd.box = { w: inner + 2 * DR.STUB, up: bs[0].up, down: offs[offs.length - 1] + bs[bs.length - 1].down, inner, offs });
   }
-  function drawRes(nd, x, y, dir, ctx) {
-    const { o, ann } = ctx, unknown = ann.R[nd.idx] == null, a = DR.LEAD, z = DR.ZZ, cx = x + DR.RW / 2;
-    o.push(ln(x, y, x + a, y));
-    const pts = [[x + a, y]];
-    for (let i = 0; i < 6; i++) pts.push([x + a + z * (2 * i + 1) / 12, y + (i % 2 ? DR.AMP : -DR.AMP)]);
-    pts.push([x + a + z, y]);
-    o.push(`<polyline${unknown ? ' class="ckt-unk"' : ''} points="${pts.map(p => rd(p[0]) + ',' + rd(p[1])).join(' ')}"/>`);
-    o.push(ln(x + a + z, y, x + DR.RW, y));
-    const rv = unknown ? null : ctx.fmt(nd.R, 'Ω'), labels = [plainLabel('R_' + nd.idx, rv)];
-    o.push(svgLabel(cx, y - 14, 'R_' + nd.idx, rv));
-    const extra = ann.resExtra[nd.idx] || [];
-    extra.forEach((e, i) => {
-      const v = e.value == null ? null : ctx.fmt(e.value, UNIT[e.q]);
-      o.push(svgLabel(cx, y + DR.DOWN + 14 + i * DR.EXTRA, e.q + '_' + nd.idx, v));
-      labels.push(plainLabel(e.q + '_' + nd.idx, v));
-    });
-    if (extra.some(e => e.q === 'I')) o.push(arrow(dir > 0 ? x + a - 8 : x + DR.RW - a + 8, y, dir));
-    ctx.boxes.push({ x, y: y - nd.box.up, w: nd.box.w, h: nd.box.up + nd.box.down, idx: nd.idx, labels });
+  function zigzag(ctx, pts, unknown) {
+    ctx.o.push(`<polyline${unknown ? ' class="ckt-unk"' : ''} points="${pts.map(p => rd(p[0]) + ',' + rd(p[1])).join(' ')}"/>`);
   }
-  function drawNode(nd, x, y, dir, ctx) {
-    if (nd.type === 'R') return drawRes(nd, x, y, dir, ctx);
-    const b = nd.box, o = ctx.o;
+  function drawRes(nd, a, c, o, dir, ctx) {
+    const out = ctx.o, labs = resLabels(nd, ctx), unknown = labs[0].val == null, z = DR.ZZ;
+    const hasI = labs.some(l => l.q === 'I');
+    if (o === 'H') {
+      const x = a, y = c, L = DR.LEAD, cx = x + DR.RW / 2;
+      out.push(ln(x, y, x + L, y));
+      const pts = [[x + L, y]];
+      for (let i = 0; i < 6; i++) pts.push([x + L + z * (2 * i + 1) / 12, y + (i % 2 ? DR.AMP : -DR.AMP)]);
+      pts.push([x + L + z, y]);
+      zigzag(ctx, pts, unknown);
+      out.push(ln(x + L + z, y, x + DR.RW, y));
+      out.push(svgLabel(cx, y - 14, labs[0].sym, labs[0].val));
+      labs.slice(1).forEach((l, i) => out.push(svgLabel(cx, y + DR.DOWN + 14 + i * DR.EXTRA, l.sym, l.val)));
+      if (hasI) out.push(arrowH(dir > 0 ? x + L - 8 : x + DR.RW - L + 8, y, dir));
+      ctx.boxes.push({ x, y: y - nd.box.up, w: nd.box.w, h: nd.box.up + nd.box.down, idx: nd.idx, o,
+        labels: labs.map(l => plainLabel(l.sym, l.val)), labelRoom: DR.RW - 4 });
+    } else {
+      const x = c, y = a, L = DR.VLEAD;
+      out.push(ln(x, y, x, y + L));
+      const pts = [[x, y + L]];
+      for (let i = 0; i < 6; i++) pts.push([x + (i % 2 ? DR.AMP : -DR.AMP), y + L + z * (2 * i + 1) / 12]);
+      pts.push([x, y + L + z]);
+      zigzag(ctx, pts, unknown);
+      out.push(ln(x, y + L + z, x, y + DR.RV));
+      const y0 = y + DR.RV / 2 - (labs.length - 1) * DR.VLINE / 2 + 5;
+      labs.forEach((l, i) => out.push(svgLabel(x + DR.VPAD + 4, y0 + i * DR.VLINE, l.sym, l.val, 'start')));
+      if (hasI) out.push(arrowV(x, dir > 0 ? y + L - 4 : y + DR.RV - L + 4, dir));
+      ctx.boxes.push({ x: x - nd.box.up, y, w: nd.box.up + nd.box.down, h: nd.box.w, idx: nd.idx, o,
+        labels: labs.map(l => plainLabel(l.sym, l.val)), labelRoom: nd.box.lw });
+    }
+  }
+  function drawNode(nd, a, c, o, dir, ctx) {
+    if (nd.type === 'R') return drawRes(nd, a, c, o, dir, ctx);
+    const b = nd.box, out = ctx.o;
     if (nd.type === 'S') {   // בכיוון הפוך (קו תחתון) מציירים מימין לשמאל כדי שהמספור ילך עם הזרם
-      let cx = x;
-      (dir < 0 ? nd.children.slice().reverse() : nd.children).forEach(ch => { drawNode(ch, cx, y, dir, ctx); cx += ch.box.w; });
+      let ca = a;
+      (dir < 0 ? nd.children.slice().reverse() : nd.children).forEach(ch => { drawNode(ch, ca, c, o, dir, ctx); ca += ch.box.w; });
       return;
     }
-    const xl = x + DR.STUB, xr = x + b.w - DR.STUB, last = nd.children.length - 1, yl = y + b.offs[last];
-    o.push(ln(x, y, xl, y), ln(xr, y, x + b.w, y), ln(xl, y, xl, yl), ln(xr, y, xr, yl));
+    const al = a + DR.STUB, ar = a + b.w - DR.STUB, last = nd.children.length - 1, cl = c + b.offs[last];
+    out.push(lnO(o, a, c, al, c), lnO(o, ar, c, a + b.w, c), lnO(o, al, c, al, cl), lnO(o, ar, c, ar, cl));
     nd.children.forEach((ch, i) => {
-      const yi = y + b.offs[i], bx = xl + (b.inner - ch.box.w) / 2;
-      if (bx > xl + 0.01) o.push(ln(xl, yi, bx, yi));
-      drawNode(ch, bx, yi, dir, ctx);
-      if (bx + ch.box.w < xr - 0.01) o.push(ln(bx + ch.box.w, yi, xr, yi));
-      if (i < last) o.push(dot(xl, yi), dot(xr, yi));
+      const ci = c + b.offs[i], ba = al + (b.inner - ch.box.w) / 2;
+      if (ba > al + 0.01) out.push(lnO(o, al, ci, ba, ci));
+      drawNode(ch, ba, ci, o, dir, ctx);
+      if (ba + ch.box.w < ar - 0.01) out.push(lnO(o, ba + ch.box.w, ci, ar, ci));
+      if (i < last) out.push(dotO(o, al, ci), dotO(o, ar, ci));
     });
   }
-  function seriesOf(list, ann) {
-    if (list.length === 1) return list[0];
-    const nd = { type: 'S', children: list };
-    measure(nd, ann);
+  function seriesOf(list, ctx, o) {
+    if (!list || !list.length) return null;
+    const nd = list.length === 1 ? list[0] : { type: 'S', children: list };
+    measure(nd, ctx, o);
     return nd;
   }
-  function render(ex) {
-    const c = ex.circuit, ann = ex.ann, root = c.root;
-    const ctx = { o: [], boxes: [], ann, fmt: (x, u) => Units.format(x, u, ex.prefixes, 4) };
-    const o = ctx.o;
-    measure(root, ann);
-    let top = root, bot = null;
+
+  // תוכנית פריסה: אילו בלוקים של השורש בקו העליון (H, ימינה), בצד ימין (V, למטה) ובקו התחתון (H, שמאלה)
+  function classicPlan(root, ctx) {
+    measure(root, ctx, 'H');
     // שורש טורי רחב: מחלקים בין הקו העליון לתחתון כך שהרוחב המקסימלי מינימלי
-    if (root.type === 'S' && root.children.length >= 2 && root.box.w > DR.SPLIT_W) {
+    if (root.type === 'S' && root.box.w > DR.SPLIT_W) {
       const ws = root.children.map(ch => ch.box.w);
       let best = null;
       for (let m = 1; m < ws.length; m++) {
         const s = Math.max(sum(ws.slice(0, m)), sum(ws.slice(m)));
         if (!best || s < best.s) best = { m, s };
       }
-      top = seriesOf(root.children.slice(0, best.m), ann);
-      bot = seriesOf(root.children.slice(best.m), ann);
+      return { top: root.children.slice(0, best.m), bottom: root.children.slice(best.m) };
     }
-    const M = DR.M, xL = M + DR.LABEL_W, gapL = ann.IT !== undefined ? 124 : 30, rowX = xL + gapL;
-    const tw = top.box.w, bw = bot ? bot.box.w : 0, W = Math.max(tw, bw, 160), xR = rowX + W + 30;
-    const yTop = M + Math.max(top.box.up, 30);
-    const yBot = yTop + Math.max(top.box.down + 26 + (bot ? bot.box.up : 0), 110);
+    return { top: [root] };
+  }
+  // כל החלוקות האפשריות עם בלוק אנכי בצד ימין
+  function verticalPlans(root) {
+    if (root.type === 'P') return [{ right: [root] }];   // מקבילי כסולם: ענפים אנכיים זה לצד זה
+    const ch = root.children, k = ch.length, plans = [];
+    for (let r = 1; r <= Math.min(2, k - 1); r++)
+      for (let t = 1; t <= k - r; t++) plans.push({ top: ch.slice(0, t), right: ch.slice(t, t + r), bottom: ch.slice(t + r) });
+    return plans;
+  }
 
-    const tx = rowX + (W - tw) / 2;
-    o.push(ln(xL, yTop, tx, yTop));
-    drawNode(top, tx, yTop, 1, ctx);
-    o.push(ln(tx + tw, yTop, xR, yTop), ln(xR, yTop, xR, yBot));
+  function layout(ex, plan) {
+    const ann = ex.ann;
+    const ctx = { o: [], boxes: [], ann, fmt: (x, u) => Units.format(x, u, ex.prefixes, 4) };
+    const o = ctx.o;
+    const top = seriesOf(plan.top, ctx, 'H'), right = seriesOf(plan.right, ctx, 'V'), bot = seriesOf(plan.bottom, ctx, 'H');
+
+    const M = DR.M, xL = M + DR.LABEL_W, gapL = ann.IT !== undefined ? 124 : 30, rowX = xL + gapL;
+    const tw = top ? top.box.w : 0, bw = bot ? bot.box.w : 0;
+    const W = Math.max(tw, bw, right ? 40 : 160);
+    const xR = rowX + W + 30 + (right ? right.box.up : 0);
+    const yTop = M + Math.max(top ? top.box.up : 0, 30);
+    let inner = Math.max((top ? top.box.down : 0) + 26 + (bot ? bot.box.up : 0), 110);
+    if (right) inner = Math.max(inner, right.box.w + 40);
+    const yBot = yTop + inner;
+
+    if (top) {
+      const tx = rowX + (W - tw) / 2;
+      o.push(ln(xL, yTop, tx, yTop));
+      drawNode(top, tx, yTop, 'H', 1, ctx);
+      o.push(ln(tx + tw, yTop, xR, yTop));
+    } else o.push(ln(xL, yTop, xR, yTop));
+    if (right) {
+      const ay = yTop + (inner - right.box.w) / 2;
+      o.push(ln(xR, yTop, xR, ay));
+      drawNode(right, ay, xR, 'V', 1, ctx);
+      o.push(ln(xR, ay + right.box.w, xR, yBot));
+    } else o.push(ln(xR, yTop, xR, yBot));
     if (bot) {
       const bx = rowX + (W - bw) / 2;
       o.push(ln(xR, yBot, bx + bw, yBot));
-      drawNode(bot, bx, yBot, -1, ctx);
+      drawNode(bot, bx, yBot, 'H', -1, ctx);
       o.push(ln(bx, yBot, xL, yBot));
     } else o.push(ln(xR, yBot, xL, yBot));
 
@@ -655,7 +716,7 @@
 
     if (ann.IT !== undefined) {
       const mx = xL + gapL / 2;
-      o.push(arrow(mx + 8, yTop, 1));
+      o.push(arrowH(mx + 8, yTop, 1));
       o.push(svgLabel(mx, yTop - 12, 'I_T', ann.IT == null ? null : ctx.fmt(ann.IT, 'A')));
     }
     let H = yBot + Math.max(bot ? bot.box.down : 0, 8) + M;
@@ -664,15 +725,33 @@
       o.push(svgLabel((xL + xR) / 2, ly, ann.totalLabel, null));
       H = ly + 8 + M;
     }
-    const Wt = xR + M;
+    const Wt = xR + (right ? right.box.down : 0) + M;
+    return { ctx, width: Wt, height: H, split: !!bot, vertical: !!right };
+  }
+
+  // opts.mode: 'classic' | 'vertical' (לבדיקות). ברירת מחדל: הגרלה מתוך ה-seed,
+  // במחולל נפרד, כך שהמעגל, הערכים והתשובה לא משתנים, ואותו תרגיל תמיד מצויר אותו דבר.
+  function render(ex, opts) {
+    const root = ex.circuit.root, mode = opts && opts.mode;
+    const rng = makeRng((ex.seed ^ 0x9E3779B9) >>> 0);
+    const wantVert = mode ? mode === 'vertical' : rng.next() < DR.P_VERT;
+    let lay = null;
+    if (wantVert) {
+      const all = verticalPlans(root).map(p => layout(ex, p));
+      const fit = all.filter(l => l.width <= DR.MAX_W_VERT);
+      if (fit.length) lay = rng.pick(fit);
+      else if (mode === 'vertical') lay = all.reduce((m, l) => (l.width < m.width ? l : m));   // לבדיקות בלבד
+    }
+    if (!lay) lay = layout(ex, classicPlan(root, { ann: ex.ann, fmt: (x, u) => Units.format(x, u, ex.prefixes, 4) }));
+    const { width: Wt, height: H } = lay;
     const svg =
       `<svg xmlns="http://www.w3.org/2000/svg" class="ckt" viewBox="0 0 ${rd(Wt)} ${rd(H)}" width="${rd(Wt)}" height="${rd(H)}" ` +
       `direction="ltr" font-family="Arial, Helvetica, sans-serif" font-size="14" role="img" aria-label="שרטוט המעגל">` +
       `<style>.ckt line,.ckt polyline{stroke:#1f2937;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}` +
       `.ckt .ckt-unk{stroke:#d9480f;stroke-width:2.6}.ckt text{fill:#1f2937}.ckt .ckt-q{fill:#d9480f;font-weight:bold}` +
       `.ckt .ckt-fill{fill:#1f2937;stroke:none}.ckt .ckt-plate{stroke-width:3}.ckt .ckt-short{stroke-width:5}</style>` +
-      `<rect width="100%" height="100%" fill="#fff"/>` + o.join('') + `</svg>`;
-    return { svg, width: Wt, height: H, boxes: ctx.boxes, split: !!bot };
+      `<rect width="100%" height="100%" fill="#fff"/>` + lay.ctx.o.join('') + `</svg>`;
+    return { svg, width: Wt, height: H, boxes: lay.ctx.boxes, split: lay.split, vertical: lay.vertical };
   }
 
   global.Engine = {
