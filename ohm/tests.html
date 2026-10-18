@@ -35,6 +35,7 @@
   const log = s => { lines.push(s); };
   const html = await (await fetch('index.html', { cache: 'no-store' })).text();
   const doc = new DOMParser().parseFromString(html, 'text/html');
+  await new Promise((res, rej) => { const c = document.createElement('script'); c.src = '../common/core.js'; c.onload = res; c.onerror = rej; document.head.appendChild(c); });
   const sc = document.createElement('script');
   sc.textContent = doc.getElementById('engine').textContent;
   document.head.appendChild(sc);

@@ -4,64 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>תרגול מעגל טורי, מקבילי ומעורב</title>
-<style>
-  :root {
-    --bg: #f4f6f9; --card: #fff; --fg: #1f2937; --muted: #6b7280; --line: #d9dee6;
-    --accent: #1d4ed8; --accent-soft: #e8efff; --ok: #15803d; --ok-soft: #e7f6ec;
-    --bad: #b42318; --bad-soft: #fdecea; --warn: #9a6700; --warn-soft: #fff6db; --unk: #d9480f;
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--fg);
-         font-family: "Segoe UI", Arial, Helvetica, sans-serif; font-size: 17px; line-height: 1.5; }
-  header { background: var(--accent); color: #fff; padding: 12px 16px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
-  header h1 { margin: 0; font-size: 20px; font-weight: 600; }
-  header .ver { font-size: 13px; opacity: .85; }
-  header .home { margin-inline-start: auto; color: #fff; font-size: 15px; white-space: nowrap; }
-  main { max-width: 820px; margin: 0 auto; padding: 16px; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
-  h2 { margin: 0 0 12px; font-size: 19px; }
-  h3 { margin: 18px 0 8px; font-size: 17px; }
-  fieldset { border: 1px solid var(--line); border-radius: 10px; margin: 0 0 14px; padding: 10px 14px; }
-  legend { padding: 0 6px; color: var(--muted); font-size: 15px; }
-  .opt { display: inline-flex; align-items: center; gap: 6px; margin-inline-end: 18px; cursor: pointer; }
-  .opt input, .switch input { width: 18px; height: 18px; }
-  .row { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; }
-  .switch { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; cursor: pointer; }
-  select, input[type=text] { font: inherit; padding: 6px 8px; border: 1px solid #b8c0cc; border-radius: 8px; background: #fff; color: var(--fg); }
-  button { font: inherit; border-radius: 8px; padding: 8px 16px; border: 1px solid var(--accent);
-           background: #fff; color: var(--accent); cursor: pointer; }
-  button.primary { background: var(--accent); color: #fff; }
-  button:disabled { opacity: .45; cursor: default; }
-  button.link { border: none; background: none; padding: 4px 0; text-decoration: underline; }
-  .note { color: var(--muted); font-size: 15px; min-height: 1.2em; margin: 4px 0 12px; }
-  .bar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin-bottom: 8px; }
-  .badge { background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 2px 12px; font-weight: 600; }
-  .muted { color: var(--muted); font-size: 15px; }
-  .q { font-size: 18px; margin: 6px 0 10px; }
-  .circuit { overflow-x: auto; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 6px; text-align: center; }
-  .circuit svg { width: 100%; height: auto; display: block; margin: 0 auto; }
-  .givens { margin: 10px 0 6px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-  .chip { background: #f1f3f6; border-radius: 6px; padding: 1px 8px; font-size: 16px; white-space: nowrap; }
-  .chip.unk { background: #fff0e6; color: var(--unk); font-weight: 600; }
-  .ans { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 14px 0 8px; }
-  .ansbox { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-  .ansbox input { width: 8.5em; }
-  .fb { border-radius: 8px; padding: 0; margin: 8px 0; }
-  .fb:not(:empty) { padding: 8px 12px; }
-  .fb.ok { background: var(--ok-soft); color: var(--ok); }
-  .fb.bad { background: var(--bad-soft); color: var(--bad); }
-  .fb.warn { background: var(--warn-soft); color: var(--warn); }
-  #steps { padding-inline-start: 22px; margin: 0; }
-  #steps li { margin-bottom: 10px; }
-  #steps .sn { color: var(--muted); font-size: 15px; }
-  #steps .eq { font-family: Consolas, "Courier New", monospace; font-size: 16px; text-align: left; overflow-x: auto; }
-  .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
-  .actions .actions { margin-top: 0; }
-  .seed { color: #a0a7b3; font-size: 12px; text-align: left; margin-top: 10px; }
-  footer { text-align: center; color: var(--muted); font-size: 13px; padding: 18px 16px 24px; }
-  bdi[dir=ltr], [dir=ltr] { unicode-bidi: isolate; }
-  [hidden] { display: none !important; }
-</style>
+<link rel="stylesheet" href="../common/style.css">
 </head>
 <body>
 <header>
@@ -95,58 +38,18 @@
     <button id="start" class="primary">התחלה</button>
   </section>
 
-  <section id="play" class="card" hidden>
-    <div class="bar">
-      <span id="lvl" class="badge"></span>
-      <span id="ctype" class="muted"></span>
-      <span id="tries" class="muted"></span>
-    </div>
-    <p id="qtext" class="q"></p>
-    <div id="circuit" class="circuit" dir="ltr"></div>
-    <div id="givens" class="givens"></div>
-    <div id="unknown" class="givens"></div>
-
-    <form id="ansForm" class="ans" autocomplete="off">
-      <label for="ans">התשובה:</label>
-      <span class="ansbox" dir="ltr">
-        <span id="ansSym"></span> =
-        <input id="ans" type="text" inputmode="decimal" dir="ltr" spellcheck="false">
-        <select id="prefix" aria-label="תחילית">
-          <option value="1">(ללא)</option>
-          <option value="1000000">M</option>
-          <option value="1000">k</option>
-          <option value="0.001">m</option>
-          <option value="0.000001">µ</option>
-        </select>
-        <span id="unit"></span>
-      </span>
-      <button type="submit" id="checkBtn" class="primary">בדיקה</button>
-    </form>
-
-    <div id="feedback" class="fb" role="status" aria-live="polite"></div>
-    <button id="showSol" type="button" class="link" hidden>הצג פתרון מלא</button>
-    <div id="solution" hidden>
-      <h3>פתרון שלב אחר שלב</h3>
-      <ol id="steps"></ol>
-    </div>
-
-    <div class="actions">
-      <span id="choices" class="actions" hidden></span>
-      <button id="next" type="button">תרגיל חדש</button>
-      <button id="back" type="button">חזרה להגדרות</button>
-    </div>
-    <div id="seed" class="seed" dir="ltr"></div>
-  </section>
+  <section id="play" class="card" hidden></section>
 </main>
 
 <footer>נוצר על ידי ראשון דיבקר בעזרת Claude · <span dir="ltr" id="ver2"></span></footer>
 
 <!-- ======================= מנוע (ללא DOM) ======================= -->
+<script src="../common/core.js"></script>
 <script id="engine">
 (function (global) {
   'use strict';
 
-  const VERSION = 'v1.5';
+  const VERSION = 'v1.6';
   const MAX_LEVEL = 5;
   const MAX_ATTEMPTS = 3;
   const TOL = 0.01;        // סטייה יחסית מותרת בבדיקת תשובה (1%)
@@ -163,70 +66,10 @@
 
   const sum = a => a.reduce((s, x) => s + x, 0);
 
-  // ---------------- Rng (mulberry32, seedable) ----------------
-  function makeRng(seed) {
-    let a = seed >>> 0;
-    const next = () => {
-      a = (a + 0x6D2B79F5) >>> 0;
-      let t = a;
-      t = Math.imul(t ^ (t >>> 15), t | 1);
-      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-    const int = (lo, hi) => lo + Math.floor(next() * (hi - lo + 1));
-    const pick = arr => arr[Math.floor(next() * arr.length)];
-    const shuffle = arr => { const b = arr.slice(); for (let i = b.length - 1; i > 0; i--) { const j = int(0, i); [b[i], b[j]] = [b[j], b[i]]; } return b; };
-    return { next, int, pick, shuffle };
-  }
-  const randomSeed = () => (Math.random() * 4294967296) >>> 0;
-
-  // ---------------- Units ----------------
-  const PREFIXES = [
-    { p: 'M', f: 1e6 }, { p: 'k', f: 1e3 }, { p: '', f: 1 }, { p: 'm', f: 1e-3 }, { p: 'µ', f: 1e-6 },
-  ];
-  const roundSig = (x, s) => (x === 0 ? 0 : Number(x.toPrecision(s)));
-  function numStr(v) {
-    let s = String(v);
-    if (/e/i.test(s)) s = v.toFixed(15).replace(/\.?0+$/, '');
-    return s;
-  }
-  function pickPrefix(x) {
-    const a = Math.abs(x);
-    for (const P of PREFIXES) if (a >= P.f * (1 - 1e-9)) return P;
-    return PREFIXES[PREFIXES.length - 1];
-  }
-  const Units = {
-    PREFIXES,
-    // הצגת ערך (נתון או שלב ביניים): sig ספרות משמעותיות
-    format(x, unit, prefixes, sig = 4) {
-      const P = prefixes ? pickPrefix(x) : { p: '', f: 1 };
-      return numStr(roundSig(x / P.f, sig)) + ' ' + P.p + unit;
-    },
-    // הצגת התשובה הנכונה: 2 ספרות אחרי הנקודה ביחידה הטבעית; ערך קטן מ-1: 3 ספרות משמעותיות
-    formatAnswer(x, unit, prefixes) {
-      const P = prefixes ? pickPrefix(x) : { p: '', f: 1 };
-      let v = x / P.f;
-      v = Math.abs(v) >= 1 ? Math.round(v * 100) / 100 : roundSig(v, 3);
-      return numStr(v) + ' ' + P.p + unit;
-    },
-    // קלט תלמיד: נקודה או פסיק עשרוני, בלי מפרידי אלפים. מחזיר NaN אם לא תקין
-    parseNumber(str) {
-      const s = String(str).trim().replace(',', '.');
-      if (!/^(\d+(\.\d*)?|\.\d+)$/.test(s)) return NaN;
-      return Number(s);
-    },
-    check(student, correct) {
-      return Math.abs(student - correct) <= TOL * Math.abs(correct);
-    },
-    // האם התשובה נכונה פרט לפקטור של 1000 או מיליון (טעות תחילית/יחידות)
-    prefixHint(student, correct) {
-      return [1e3, 1e6, 1e-3, 1e-6].some(k => Units.check(student, correct * k));
-    },
-    // "נקי": ניתן לייצוג מדויק בעד 3 ספרות משמעותיות
-    isClean(x) {
-      return x > 0 && Math.abs(roundSig(x, 3) - x) <= 1e-9 * x;
-    },
-  };
+  // ---------------- Rng, Units (קוד משותף: common/core.js) ----------------
+  const { makeRng, randomSeed } = global.Core;
+  const Units = global.Core.makeUnits({ prefixes: ['M', 'k', '', 'm', 'µ'], tol: TOL });
+  const { roundSig, numStr, pickPrefix } = Units;
 
   // ---------------- Circuit tree ----------------
   // { type:'R', idx, R }  |  { type:'S'|'P', children:[...] }
@@ -475,20 +318,9 @@
   const allowedTypes = (types, n) => types.filter(t => t !== 'M' || n >= 3);
   const minLevel = types => (types.length && types.every(t => t === 'M') ? 2 : 1);
   const allowedKinds = (level, power) => KIND_DEFS.filter(k => (!k.inverse || level >= 2) && (!k.power || power));
-  // בסוף תרגיל התלמיד בוחר רמה. מחזיר אפשרויות לפי סדר התצוגה; primary = ההמלצה.
-  // נכון: לעלות / להישאר (בניסיון 3 ההמלצה היא להישאר). כישלון: להישאר / לרדת.
-  function levelChoices(level, correct, attempt, min) {
-    const out = [];
-    if (correct) {
-      const up = level < MAX_LEVEL;
-      if (up) out.push({ level: level + 1, primary: attempt < MAX_ATTEMPTS });
-      out.push({ level, primary: !up || attempt >= MAX_ATTEMPTS });
-    } else {
-      out.push({ level, primary: true });
-      if (level > min) out.push({ level: level - 1, primary: false });
-    }
-    return out;
-  }
+  // בחירת רמה בסוף תרגיל (קוד משותף)
+  const levelChoices = (level, correct, attempt, min) => global.Core.levelChoices(level, correct, attempt, min, MAX_LEVEL, MAX_ATTEMPTS);
+
   function weightedPick(rng, defs) {
     let r = rng.next() * sum(defs.map(d => d.w));
     for (const d of defs) { r -= d.w; if (r < 0) return d; }
@@ -805,20 +637,11 @@
 })(typeof window !== 'undefined' ? window : globalThis);
 </script>
 
-<!-- ======================= ממשק ======================= -->
+<!-- ======================= ממשק (common/core.js) ======================= -->
 <script>
 (function () {
   'use strict';
-  const E = window.Engine;
-  const $ = id => document.getElementById(id);
-  const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  // סמלים בכתיב X_sub ← HTML עם כתב תחתון, מבודד משמאל לימין
-  const symHtml = s => s.replace(/\b([RIVP])_([0-9A-Za-z]+)/g, '<bdi dir="ltr">$1<sub>$2</sub></bdi>');
-
-  const st = { settings: null, level: 1, ex: null, failed: 0, finished: false, prevKind: null };
-
-  $('ver').textContent = E.VERSION;
-  $('ver2').textContent = E.VERSION;
+  const E = window.Engine, $ = id => document.getElementById(id), esc = Core.esc, symHtml = Core.symHtml;
 
   // ---------- הגדרות ----------
   function readSettings() {
@@ -845,140 +668,22 @@
   ['tS', 'tP', 'tM', 'level'].forEach(id => $(id).addEventListener('change', syncSettings));
   syncSettings();
 
-  $('start').addEventListener('click', () => {
-    st.settings = readSettings();
-    st.level = st.settings.level;
-    st.prevKind = null;
-    $('setup').hidden = true;
-    $('play').hidden = false;
-    newExercise();
-  });
-  $('back').addEventListener('click', () => {
-    $('play').hidden = true;
-    $('setup').hidden = false;
-    window.scrollTo(0, 0);
-  });
-
   // ---------- תרגיל ----------
-  function newExercise() {
-    const s = st.settings;
-    st.ex = E.makeExercise({ level: st.level, types: s.types, power: s.power, prefixes: s.prefixes, meters: s.meters, prevKind: st.prevKind });
-    st.prevKind = st.ex.kind;
-    st.failed = 0;
-    st.finished = false;
-    renderExercise();
-  }
-  function renderExercise() {
-    const ex = st.ex, s = st.settings;
-    $('lvl').textContent = `רמה ${ex.level}`;
-    $('ctype').textContent = 'מעגל ' + E.TYPE_NAMES[ex.ctype];
-    $('qtext').innerHTML = symHtml(esc(ex.text));
-    const r = E.Draw.render(ex);
-    $('circuit').innerHTML = r.svg;
-    const svg = $('circuit').querySelector('svg');
-    svg.style.maxWidth = Math.round(r.width * 1.15) + 'px';
-    // בטלפון: לא מקטינים מתחת ל-78% (גופן של כ-11px); מעגל רחב יותר נגלל הצידה
-    svg.style.minWidth = Math.round(r.width * 0.78) + 'px';
-
-    const g = E.givensList(ex).map(x => `<span class="chip" dir="ltr">${symHtml(x.sym)} = ${esc(x.text)}</span>`);
-    $('givens').innerHTML = '<span class="muted">נתונים:</span> ' + g.join(' ');
-    $('unknown').innerHTML = `<span class="muted">נעלם:</span> <span class="chip unk" dir="ltr">${symHtml(ex.sym)} = ?</span>`;
-
-    $('ansSym').innerHTML = symHtml(ex.sym);
-    $('unit').textContent = ex.unit;
-    $('prefix').hidden = !s.prefixes;
-    $('prefix').value = '1';
-    $('ans').value = '';
-    $('ans').disabled = false;
-    $('checkBtn').disabled = false;
-    $('prefix').disabled = false;
-    setFeedback('', '');
-    $('solution').hidden = true;
-    $('showSol').hidden = true;
-    $('showSol').textContent = 'הצג פתרון מלא';
-    $('steps').innerHTML = ex.steps.map(stepHtml).join('');
-    $('next').hidden = false;
-    $('choices').hidden = true;
-    $('seed').textContent = '#' + ex.seed;
-    updateTries();
-  }
-  function stepHtml(step) {
-    const f = x => E.Units.format(x, step.unit, st.ex.prefixes, 4);
+  const stepsHtml = ex => '<ol class="steps">' + ex.steps.map(step => {
     const parts = [step.lhs, step.formula, step.subst].filter(Boolean).map(p => symHtml(esc(p)));
-    return `<li><div class="sn">${esc(step.note)}</div><div class="eq" dir="ltr">${parts.join(' = ')} = ${esc(f(step.value))}</div></li>`;
-  }
-  function updateTries() {
-    $('tries').textContent = st.finished ? '' : `ניסיון ${st.failed + 1} מתוך ${E.MAX_ATTEMPTS}`;
-  }
-  function setFeedback(cls, html) {
-    $('feedback').className = 'fb ' + cls;
-    $('feedback').innerHTML = html;
-  }
-  function answerText() {
-    return `<bdi dir="ltr">${symHtml(st.ex.sym)} = ${esc(E.Units.formatAnswer(st.ex.answer, st.ex.unit, st.ex.prefixes))}</bdi>`;
-  }
-  // סוף תרגיל: במקום "תרגיל חדש" מוצגים כפתורי בחירת רמה
-  function finish(correct, attempt) {
-    st.finished = true;
-    $('ans').disabled = true;
-    $('prefix').disabled = true;
-    $('checkBtn').disabled = true;
-    const opts = E.levelChoices(st.level, correct, attempt, E.minLevel(st.settings.types));
-    const label = n => (opts.length === 1 ? 'לתרגיל הבא'
-      : n > st.level ? `לעלות לרמה ${n}` : n < st.level ? `לרדת לרמה ${n}` : `להישאר ברמה ${n}`);
-    $('choices').innerHTML = opts.map(o =>
-      `<button type="button" data-level="${o.level}"${o.primary ? ' class="primary"' : ''}>${label(o.level)}</button>`).join('');
-    $('choices').hidden = false;
-    $('next').hidden = true;
-    updateTries();
-  }
-  $('choices').addEventListener('click', ev => {
-    const b = ev.target.closest('button[data-level]');
-    if (!b) return;
-    st.level = +b.dataset.level;
-    newExercise();
+    return `<li><div class="sn">${esc(step.note)}</div><div class="eq" dir="ltr">${parts.join(' = ')} = ${esc(E.Units.format(step.value, step.unit, ex.prefixes, 4))}</div></li>`;
+  }).join('') + '</ol>';
+  Core.mountUI({
+    engine: E, units: E.Units, prefixes: ['', 'M', 'k', 'm', 'µ'],
+    readSettings, minLevel: s => E.minLevel(s.types),
+    makeExercise: (s, level, prevKind) => E.makeExercise({ level, types: s.types, power: s.power, prefixes: s.prefixes, meters: s.meters, prevKind }),
+    ctypeHtml: ex => 'מעגל ' + E.TYPE_NAMES[ex.ctype],
+    render: ex => E.Draw.render(ex),
+    givens: ex => E.givensList(ex),
+    parts: ex => [{ answers: [{ type: 'num', sym: ex.sym, value: ex.answer, unit: ex.unit, prefix: ex.prefixes }] }],
+    solution: { title: 'פתרון שלב אחר שלב', html: stepsHtml, onCorrect: true },
+    failSuffix: 'הנה הפתרון המלא:',
   });
-
-  $('ansForm').addEventListener('submit', ev => {
-    ev.preventDefault();
-    if (st.finished) return;
-    const ex = st.ex;
-    const num = E.Units.parseNumber($('ans').value);
-    if (isNaN(num)) {
-      setFeedback('warn', 'נא להקליד מספר בלבד (אפשר נקודה או פסיק עשרוני). הניסיון לא נספר.');
-      return;
-    }
-    const val = num * (st.settings.prefixes ? +$('prefix').value : 1);
-    const attempt = st.failed + 1;
-    if (E.Units.check(val, ex.answer)) {
-      let msg = `נכון! ${answerText()}. `;
-      if (st.level >= E.MAX_LEVEL) msg += 'זו הרמה הגבוהה ביותר.';
-      else if (attempt >= E.MAX_ATTEMPTS) msg += 'הצלחתם בניסיון השלישי. אפשר לעלות רמה, או להישאר ולתרגל עוד.';
-      else msg += 'אפשר לעלות רמה או להישאר באותה רמה.';
-      setFeedback('ok', msg);
-      $('showSol').hidden = false;
-      finish(true, attempt);
-    } else {
-      st.failed++;
-      if (st.failed < E.MAX_ATTEMPTS) {
-        const left = E.MAX_ATTEMPTS - st.failed;
-        let msg = left === 1 ? 'לא נכון. נשאר ניסיון אחד.' : `לא נכון. נשארו ${left} ניסיונות.`;
-        if (E.Units.prefixHint(val, ex.answer)) msg += ' שימו לב ליחידות ולתחיליות: התשובה רחוקה פי 1000 או יותר.';
-        setFeedback('bad', msg);
-        updateTries();
-        $('ans').select();
-      } else {
-        setFeedback('bad', `לא נכון. התשובה הנכונה: ${answerText()}. הנה הפתרון המלא:`);
-        $('solution').hidden = false;
-        finish(false, attempt);
-      }
-    }
-  });
-  $('showSol').addEventListener('click', () => {
-    $('solution').hidden = !$('solution').hidden;
-    $('showSol').textContent = $('solution').hidden ? 'הצג פתרון מלא' : 'הסתר פתרון';
-  });
-  $('next').addEventListener('click', newExercise);
 })();
 </script>
 </body>

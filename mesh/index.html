@@ -4,68 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>תרגול זרמי חוגים</title>
-<style>
-  :root {
-    --bg: #f4f6f9; --card: #fff; --fg: #1f2937; --muted: #6b7280; --line: #d9dee6;
-    --accent: #1d4ed8; --accent-soft: #e8efff; --ok: #15803d; --ok-soft: #e7f6ec;
-    --bad: #b42318; --bad-soft: #fdecea; --warn: #9a6700; --warn-soft: #fff6db; --unk: #d9480f;
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--fg);
-         font-family: "Segoe UI", Arial, Helvetica, sans-serif; font-size: 17px; line-height: 1.5; }
-  header { background: var(--accent); color: #fff; padding: 12px 16px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
-  header h1 { margin: 0; font-size: 20px; font-weight: 600; }
-  header .ver { font-size: 13px; opacity: .85; }
-  header .home { margin-inline-start: auto; color: #fff; font-size: 15px; white-space: nowrap; }
-  main { max-width: 820px; margin: 0 auto; padding: 16px; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
-  h2 { margin: 0 0 12px; font-size: 19px; }
-  h3 { margin: 18px 0 8px; font-size: 17px; }
-  fieldset { border: 1px solid var(--line); border-radius: 10px; margin: 0 0 14px; padding: 10px 14px; }
-  legend { padding: 0 6px; color: var(--muted); font-size: 15px; }
-  .opt { display: inline-flex; align-items: center; gap: 6px; margin-inline-end: 18px; cursor: pointer; }
-  .opt input, .switch input { width: 18px; height: 18px; }
-  .row { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; }
-  .switch { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; cursor: pointer; }
-  select, input[type=text] { font: inherit; padding: 6px 8px; border: 1px solid #b8c0cc; border-radius: 8px; background: #fff; color: var(--fg); }
-  button { font: inherit; border-radius: 8px; padding: 8px 16px; border: 1px solid var(--accent);
-           background: #fff; color: var(--accent); cursor: pointer; }
-  button.primary { background: var(--accent); color: #fff; }
-  button:disabled { opacity: .45; cursor: default; }
-  button.link { border: none; background: none; padding: 4px 0; text-decoration: underline; }
-  .note { color: var(--muted); font-size: 15px; min-height: 1.2em; margin: 4px 0 12px; }
-  .bar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin-bottom: 8px; }
-  .badge { background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 2px 12px; font-weight: 600; }
-  .muted { color: var(--muted); font-size: 15px; }
-  .q { font-size: 18px; margin: 6px 0 10px; }
-  .circuit { overflow-x: auto; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 6px; text-align: center; }
-  .circuit svg { width: 100%; height: auto; display: block; margin: 0 auto; }
-  .givens { margin: 10px 0 6px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-  .chip { background: #f1f3f6; border-radius: 6px; padding: 1px 8px; font-size: 16px; white-space: nowrap; }
-  .chip.unk { background: #fff0e6; color: var(--unk); font-weight: 600; }
-  .ans { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 14px 0 8px; }
-  .ansbox { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-  .ansbox input { width: 8.5em; }
-  .fb { border-radius: 8px; padding: 0; margin: 8px 0; }
-  .fb:not(:empty) { padding: 8px 12px; }
-  .fb.ok { background: var(--ok-soft); color: var(--ok); }
-  .fb.bad { background: var(--bad-soft); color: var(--bad); }
-  .fb.warn { background: var(--warn-soft); color: var(--warn); }
-  #steps { padding-inline-start: 22px; margin: 0; }
-  #steps li { margin-bottom: 10px; }
-  #steps .sn { color: var(--muted); font-size: 15px; }
-  #steps .eq { font-family: Consolas, "Courier New", monospace; font-size: 16px; text-align: left; overflow-x: auto; }
-  .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
-  .actions .actions { margin-top: 0; }
-  .seed { color: #a0a7b3; font-size: 12px; text-align: left; margin-top: 10px; }
-  footer { text-align: center; color: var(--muted); font-size: 13px; padding: 18px 16px 24px; }
-  bdi[dir=ltr], [dir=ltr] { unicode-bidi: isolate; }
-  [hidden] { display: none !important; }
-  .ansrows { display: flex; flex-direction: column; gap: 8px; }
-  .ansbox .usym { min-width: 1.6em; text-align: right; }
-  .dirbox select { min-width: 9em; }
-  #summary li { margin-bottom: 4px; }
-</style>
+<link rel="stylesheet" href="../common/style.css">
 </head>
 <body>
 <header>
@@ -92,45 +31,18 @@
     <button id="start" class="primary">התחלה</button>
   </section>
 
-  <section id="play" class="card" hidden>
-    <div class="bar">
-      <span id="lvl" class="badge"></span>
-      <span id="tries" class="muted"></span>
-    </div>
-    <p id="qtext" class="q"></p>
-    <div id="circuit" class="circuit" dir="ltr"></div>
-    <div id="givens" class="givens"></div>
-    <div id="unknown" class="givens"></div>
-
-    <form id="ansForm" class="ans" autocomplete="off">
-      <label>התשובה:</label>
-      <div id="ansRows" class="ansrows"></div>
-      <button type="submit" id="checkBtn" class="primary">בדיקה</button>
-    </form>
-
-    <div id="feedback" class="fb" role="status" aria-live="polite"></div>
-    <div id="solution" hidden>
-      <h3>הזרמים במעגל</h3>
-      <ul id="summary"></ul>
-    </div>
-
-    <div class="actions">
-      <span id="choices" class="actions" hidden></span>
-      <button id="next" type="button">תרגיל חדש</button>
-      <button id="back" type="button">חזרה להגדרות</button>
-    </div>
-    <div id="seed" class="seed" dir="ltr"></div>
-  </section>
+  <section id="play" class="card" hidden></section>
 </main>
 
 <footer>נוצר על ידי ראשון דיבקר בעזרת Claude · <span dir="ltr" id="ver2"></span></footer>
 
 <!-- ======================= מנוע (ללא DOM) ======================= -->
+<script src="../common/core.js"></script>
 <script id="engine">
 (function (global) {
   'use strict';
 
-  const VERSION = 'v1.5';
+  const VERSION = 'v1.6';
   const MAX_LEVEL = 5;
   const MAX_ATTEMPTS = 3;
   const TOL = 0.01;        // סטייה יחסית מותרת (1%)
@@ -144,56 +56,10 @@
   };
   const sum = a => a.reduce((s, x) => s + x, 0);
 
-  // ---------------- Rng (mulberry32, seedable) ----------------
-  function makeRng(seed) {
-    let a = seed >>> 0;
-    const next = () => {
-      a = (a + 0x6D2B79F5) >>> 0;
-      let t = a;
-      t = Math.imul(t ^ (t >>> 15), t | 1);
-      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-    const int = (lo, hi) => lo + Math.floor(next() * (hi - lo + 1));
-    const pick = arr => arr[Math.floor(next() * arr.length)];
-    const shuffle = arr => { const b = arr.slice(); for (let i = b.length - 1; i > 0; i--) { const j = int(0, i); [b[i], b[j]] = [b[j], b[i]]; } return b; };
-    return { next, int, pick, shuffle };
-  }
-  const randomSeed = () => (Math.random() * 4294967296) >>> 0;
-
-  // ---------------- Units ----------------
-  const PREFIXES = [{ p: 'M', f: 1e6 }, { p: 'k', f: 1e3 }, { p: '', f: 1 }, { p: 'm', f: 1e-3 }, { p: 'µ', f: 1e-6 }];
-  const roundSig = (x, s) => (x === 0 ? 0 : Number(x.toPrecision(s)));
-  function numStr(v) {
-    let s = String(v);
-    if (/e/i.test(s)) s = v.toFixed(15).replace(/\.?0+$/, '');
-    return s;
-  }
-  function pickPrefix(x) {
-    const a = Math.abs(x);
-    for (const P of PREFIXES) if (a >= P.f * (1 - 1e-9)) return P;
-    return PREFIXES[PREFIXES.length - 1];
-  }
-  const Units = {
-    format(x, unit, prefixes, sig = 4) {
-      const P = prefixes ? pickPrefix(x) : { p: '', f: 1 };
-      return numStr(roundSig(x / P.f, sig)) + ' ' + P.p + unit;
-    },
-    formatAnswer(x, unit, prefixes) {
-      const P = prefixes ? pickPrefix(x) : { p: '', f: 1 };
-      let v = x / P.f;
-      v = Math.abs(v) >= 1 ? Math.round(v * 100) / 100 : roundSig(v, 3);
-      return numStr(v) + ' ' + P.p + unit;
-    },
-    parseNumber(str) {
-      const s = String(str).trim().replace(',', '.');
-      return /^(\d+(\.\d*)?|\.\d+)$/.test(s) ? Number(s) : NaN;
-    },
-    check(student, correct) { return Math.abs(student - correct) <= TOL * Math.abs(correct); },
-    prefixHint(student, correct) { return [1e3, 1e6, 1e-3, 1e-6].some(k => Units.check(student, correct * k)); },
-    // "נקי": מדויק בעד 3 ספרות משמעותיות
-    isClean(x) { const a = Math.abs(x); return a > 0 && Math.abs(roundSig(a, 3) - a) <= 1e-9 * a; },
-  };
+  // ---------------- Rng, Units (קוד משותף: common/core.js) ----------------
+  const { makeRng, randomSeed } = global.Core;
+  const Units = global.Core.makeUnits({ prefixes: ['M', 'k', '', 'm', 'µ'], tol: TOL });
+  const { roundSig, numStr, pickPrefix } = Units;
 
   // ---------------- Circuit ----------------
   // שלושה ענפים בין צומת עליון לצומת תחתון. כל ענף = מסלול מהצומת התחתון לעליון, מורכב ממקטעים (slots):
@@ -342,18 +208,9 @@
     { kind: 'R_rev', lv: 4 }, { kind: 'E_rev', lv: 4 }, { kind: 'VAB_rev', lv: 4 },
   ];
   const CURRENT_LEVEL_SHARE = 0.6;
-  function levelChoices(level, correct, attempt, min) {
-    const out = [];
-    if (correct) {
-      const up = level < MAX_LEVEL;
-      if (up) out.push({ level: level + 1, primary: attempt < MAX_ATTEMPTS });
-      out.push({ level, primary: !up || attempt >= MAX_ATTEMPTS });
-    } else {
-      out.push({ level, primary: true });
-      if (level > min) out.push({ level: level - 1, primary: false });
-    }
-    return out;
-  }
+  // בחירת רמה בסוף תרגיל (קוד משותף)
+  const levelChoices = (level, correct, attempt, min) => global.Core.levelChoices(level, correct, attempt, min, MAX_LEVEL, MAX_ATTEMPTS);
+
   function pickKind(rng, level, power, prevKind) {
     const ok = k => !k.power || power;
     const at = lv => KINDS.filter(k => k.lv === lv && ok(k));
@@ -528,141 +385,28 @@
 })(typeof window !== 'undefined' ? window : globalThis);
 </script>
 
-<!-- ======================= ממשק ======================= -->
+<!-- ======================= ממשק (common/core.js) ======================= -->
 <script>
 (function () {
   'use strict';
-  const E = window.Engine;
-  const $ = id => document.getElementById(id);
-  const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const symHtml = s => s.replace(/\b([A-Za-z])_([0-9A-Za-z]+)/g, '<bdi dir="ltr">$1<sub>$2</sub></bdi>');
-  const PREFIX_OPTS = [['1', '(ללא)'], ['1000000', 'M'], ['1000', 'k'], ['0.001', 'm'], ['0.000001', 'µ']];
-  const DIR_TEXT = { AB: 'מ-A ל-B', BA: 'מ-B ל-A' };
-
-  const st = { settings: null, level: 1, ex: null, failed: 0, finished: false, prevKind: null };
-  $('ver').textContent = E.VERSION;
-  $('ver2').textContent = E.VERSION;
-
+  const E = window.Engine, $ = id => document.getElementById(id), esc = Core.esc, symHtml = Core.symHtml;
   const readSettings = () => ({ level: +$('level').value, power: $('power').checked, prefixes: $('prefixes').checked });
-  $('start').addEventListener('click', () => {
-    st.settings = readSettings();
-    st.level = st.settings.level;
-    st.prevKind = null;
-    $('setup').hidden = true;
-    $('play').hidden = false;
-    newExercise();
+  const DIR_OPTIONS = [{ value: 'AB', label: 'מ-A ל-B' }, { value: 'BA', label: 'מ-B ל-A' }];
+  // אחרי 3 ניסיונות: רק תשובות סופיות, ולצדן הזרם בכל נגד וכיוונו בשרטוט (בלי שיטת פתרון)
+  const summaryHtml = ex => '<ul class="summary">' + E.currentSummary(ex).map(s =>
+    `<li><bdi dir="ltr">${symHtml(s.sym)}</bdi>: <bdi dir="ltr">${esc(s.text)}</bdi>, ${s.dir}</li>`).join('') + '</ul>';
+  Core.mountUI({
+    engine: E, units: E.Units, prefixes: ['', 'M', 'k', 'm', 'µ'],
+    readSettings, minLevel: () => E.minLevel(),
+    makeExercise: (s, level, prevKind) => E.makeExercise({ level, power: s.power, prefixes: s.prefixes, prevKind }),
+    render: ex => E.Draw.render(ex),
+    givens: ex => E.givensList(ex),
+    parts: ex => [{ answers: ex.answers.map(a => (a.dir
+      ? { type: 'choice', label: 'כיוון הזרם', short: 'הכיוון', options: DIR_OPTIONS, value: a.value }
+      : { type: 'num', sym: a.sym, value: a.value, unit: a.unit, prefix: ex.prefixes })) }],
+    solution: { title: 'הזרמים במעגל', html: summaryHtml, onCorrect: false },
+    failSuffix: 'למטה הזרמים בכל הנגדים.',
   });
-  $('back').addEventListener('click', () => {
-    $('play').hidden = true;
-    $('setup').hidden = false;
-    window.scrollTo(0, 0);
-  });
-
-  function newExercise() {
-    const s = st.settings;
-    st.ex = E.makeExercise({ level: st.level, power: s.power, prefixes: s.prefixes, prevKind: st.prevKind });
-    st.prevKind = st.ex.kind;
-    st.failed = 0;
-    st.finished = false;
-    renderExercise();
-  }
-  function renderExercise() {
-    const ex = st.ex, pre = st.settings.prefixes;
-    $('lvl').textContent = `רמה ${ex.level}`;
-    $('qtext').innerHTML = symHtml(esc(ex.text));
-    const r = E.Draw.render(ex);
-    $('circuit').innerHTML = r.svg;
-    const svg = $('circuit').querySelector('svg');
-    svg.style.maxWidth = Math.round(r.width * 1.15) + 'px';
-    svg.style.minWidth = Math.round(r.width * 0.78) + 'px';
-    const g = E.givensList(ex).map(x => `<span class="chip" dir="ltr">${symHtml(esc(x.sym))} = ${esc(x.text)}</span>`);
-    $('givens').innerHTML = '<span class="muted">נתונים:</span> ' + g.join(' ');
-    $('unknown').innerHTML = '<span class="muted">נעלם:</span> ' + ex.answers.map(a => a.dir
-      ? '<span class="chip unk">כיוון הזרם</span>' : `<span class="chip unk" dir="ltr">${symHtml(esc(a.sym))} = ?</span>`).join(' ');
-    $('ansRows').innerHTML = ex.answers.map((a, i) => a.dir
-      ? `<span class="ansbox dirbox">כיוון הזרם: <select data-i="${i}" class="dir"><option value="">בחרו כיוון</option>
-           <option value="AB">${DIR_TEXT.AB}</option><option value="BA">${DIR_TEXT.BA}</option></select></span>`
-      : `<span class="ansbox" dir="ltr"><span class="usym">${symHtml(esc(a.sym))}</span> =
-          <input data-i="${i}" class="val" type="text" inputmode="decimal" dir="ltr" spellcheck="false">
-          ${pre ? `<select data-i="${i}" class="pre" aria-label="תחילית">${PREFIX_OPTS.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select>` : ''}
-          <span>${esc(a.unit)}</span></span>`).join('');
-    $('checkBtn').disabled = false;
-    setFeedback('', '');
-    $('solution').hidden = true;
-    $('summary').innerHTML = E.currentSummary(ex).map(s =>
-      `<li><bdi dir="ltr">${symHtml(s.sym)}</bdi>: <bdi dir="ltr">${esc(s.text)}</bdi>, ${s.dir}</li>`).join('');
-    $('next').hidden = false;
-    $('choices').hidden = true;
-    $('seed').textContent = '#' + ex.seed;
-    updateTries();
-  }
-  function updateTries() { $('tries').textContent = st.finished ? '' : `ניסיון ${st.failed + 1} מתוך ${E.MAX_ATTEMPTS}`; }
-  function setFeedback(cls, html) { $('feedback').className = 'fb ' + cls; $('feedback').innerHTML = html; }
-  const answerText = () => st.ex.answers.map(a => a.dir ? DIR_TEXT[a.value]
-    : `<bdi dir="ltr">${symHtml(esc(a.sym))} = ${esc(E.Units.formatAnswer(a.value, a.unit, st.ex.prefixes))}</bdi>`).join(', ');
-  function finish(correct, attempt) {
-    st.finished = true;
-    document.querySelectorAll('#ansRows input, #ansRows select').forEach(el => (el.disabled = true));
-    $('checkBtn').disabled = true;
-    const opts = E.levelChoices(st.level, correct, attempt, E.minLevel());
-    const label = n => (opts.length === 1 ? 'לתרגיל הבא'
-      : n > st.level ? `לעלות לרמה ${n}` : n < st.level ? `לרדת לרמה ${n}` : `להישאר ברמה ${n}`);
-    $('choices').innerHTML = opts.map(o =>
-      `<button type="button" data-level="${o.level}"${o.primary ? ' class="primary"' : ''}>${label(o.level)}</button>`).join('');
-    $('choices').hidden = false;
-    $('next').hidden = true;
-    updateTries();
-  }
-  $('choices').addEventListener('click', ev => {
-    const b = ev.target.closest('button[data-level]');
-    if (!b) return;
-    st.level = +b.dataset.level;
-    newExercise();
-  });
-
-  $('ansForm').addEventListener('submit', ev => {
-    ev.preventDefault();
-    if (st.finished) return;
-    const ex = st.ex;
-    const vals = ex.answers.map((a, i) => {
-      if (a.dir) return document.querySelector(`#ansRows select.dir[data-i="${i}"]`).value || NaN;
-      const n = E.Units.parseNumber(document.querySelector(`#ansRows input[data-i="${i}"]`).value);
-      const pre = document.querySelector(`#ansRows select.pre[data-i="${i}"]`);
-      return n * (pre ? +pre.value : 1);
-    });
-    if (vals.some(v => typeof v === 'number' && isNaN(v))) {
-      setFeedback('warn', 'נא להקליד מספר בכל שדה ולבחור כיוון (אפשר נקודה או פסיק עשרוני). הניסיון לא נספר.');
-      return;
-    }
-    const ok = ex.answers.map((a, i) => (a.dir ? vals[i] === a.value : E.Units.check(vals[i], a.value)));
-    const attempt = st.failed + 1;
-    if (ok.every(Boolean)) {
-      let msg = `נכון! ${answerText()}. `;
-      if (st.level >= E.MAX_LEVEL) msg += 'זו הרמה הגבוהה ביותר.';
-      else if (attempt >= E.MAX_ATTEMPTS) msg += 'הצלחתם בניסיון השלישי. אפשר לעלות רמה, או להישאר ולתרגל עוד.';
-      else msg += 'אפשר לעלות רמה או להישאר באותה רמה.';
-      setFeedback('ok', msg);
-      finish(true, attempt);
-      return;
-    }
-    st.failed++;
-    let detail = '';
-    if (ex.answers.length > 1)
-      detail = ' ' + ex.answers.map((a, i) => `${a.dir ? 'הכיוון' : `<bdi dir="ltr">${symHtml(esc(a.sym))}</bdi>`} ${ok[i] ? 'נכון' : 'לא נכון'}`).join(', ') + '.';
-    if (st.failed < E.MAX_ATTEMPTS) {
-      const left = E.MAX_ATTEMPTS - st.failed;
-      let msg = (left === 1 ? 'לא נכון. נשאר ניסיון אחד.' : `לא נכון. נשארו ${left} ניסיונות.`) + detail;
-      if (ex.answers.some((a, i) => !a.dir && !ok[i] && E.Units.prefixHint(vals[i], a.value)))
-        msg += ' שימו לב ליחידות ולתחיליות: התשובה רחוקה פי 1000 או יותר.';
-      setFeedback('bad', msg);
-      updateTries();
-    } else {
-      setFeedback('bad', `לא נכון.${detail} התשובה הנכונה: ${answerText()}. למטה הזרמים בכל הנגדים.`);
-      $('solution').hidden = false;
-      finish(false, attempt);
-    }
-  });
-  $('next').addEventListener('click', newExercise);
 })();
 </script>
 </body>
