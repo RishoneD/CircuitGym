@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>בדיקות: תרגול מעגלי זרם חילופין טוריים</title>
+<style>
+  body { font-family: "Segoe UI", Arial, sans-serif; margin: 16px; color: #1f2937; background: #f4f6f9; }
+  h1 { font-size: 20px; } h2 { font-size: 17px; margin-top: 24px; }
+  pre { background: #fff; border: 1px solid #d9dee6; border-radius: 8px; padding: 10px; direction: ltr; text-align: left; white-space: pre-wrap; font-size: 13px; }
+  .pass { color: #15803d; font-weight: bold; } .fail { color: #b42318; font-weight: bold; }
+  .gal { direction: ltr; display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 12px; }
+  figure { margin: 0; background: #fff; border: 1px solid #d9dee6; border-radius: 8px; padding: 6px; min-width: 0; }
+  figcaption { font-size: 12px; color: #6b7280; }
+  figure svg { display: block; width: 100%; height: auto; }
+</style>
+</head>
+<body>
+<h1>בדיקות מנוע AC וגלריית ציורים</h1>
+<p>דורש שרת מקומי. פרמטר <code dir="ltr">?n=40</code> = מספר תרגילים לכל צירוף (סוגי מעגל × רמה).</p>
+<div id="summary"></div>
+<pre id="log"></pre>
+<h2>גלריה</h2>
+<div id="gallery" class="gal"></div>
+
+<script>
+(async function () {
+  const lines = [], log = s => lines.push(s);
+  const html = await (await fetch('index.html', { cache: 'no-store' })).text();
+  const sc = document.createElement('script');
+  sc.textContent = new DOMParser().parseFromString(html, 'text/html').getElementById('engine').textContent;
+  document.head.appendChild(sc);
+  const E = window.Engine, U = E.Units;
+
+  let pass = 0, fail = 0;
+  const failures = [];
+  function ok(cond, msg) { if (cond) pass++; else { fail++; if (failures.length < 40) failures.push(msg); } }
+  const rel = (a, b) => Math.abs(a - b) / Math.abs(b);
+  const PI2 = 2 * Math.PI, MULT = { M: 1e6, k: 1e3, m: 1e-3, 'µ': 1e-6, n: 1e-9 };
+
+  // ---------- מאמת עצמאי: פותר רק מתוך מה שמוצג לתלמיד ----------
+  function parseShown(str) {
+    let m = /^(-?\d+(?:\.\d+)?) rad\/s$/.exec(str);
+    if (m) return Number(m[1]);
+    m = /^(-?\d+(?:\.\d+)?) (M|k|m|µ|n)?(Ω|H|F|Hz|V|A|s)$/.exec(str);
+    if (!m) throw new Error('bad displayed value: ' + str);
+    return Number(m[1]) * (m[2] ? MULT[m[2]] : 1);
+  }
+  function parseUt(str) {
+    const m = /^(\d+(?:\.\d+)?)(√2)?·sin\((\d+(?:\.\d+)?)·t\) \[V\]$/.exec(str);
+    if (!m) throw new Error('bad u(t): ' + str);
+    const a = Number(m[1]);
+    return { U: m[2] ? a : a / Math.SQRT2, w: Number(m[3]) };
+  }
+  function verify(ex) {
+    const g = {};
+    for (const x of E.givensList(ex)) {
+      ok(!(x.q in g), `duplicate given ${x.q} (seed ${ex.seed})`);
+      if (x.q === 'ut') { const p = parseUt(x.text); g.U = p.U; g.w = p.w; }
+      else g[x.q] = parseShown(x.text);
+    }
+    const type = ex.ctype, has = t => E.COMPS[type].includes(t);
+    const w = g.w != null ? g.w : g.f != null ? PI2 * g.f : NaN;
+    const XL = g.XL != null ? g.XL : has('L') && g.L != null ? w * g.L : 0;
+    const XC = g.XC != null ? g.XC : has('C') && g.C != null ? 1 / (w * g.C) : 0;
+    const Zof = ww => Math.hypot(g.R, (has('L') ? ww * g.L : 0) - (has('C') ? 1 / (ww * g.C) : 0));
+    const Z = Math.hypot(g.R, XL - XC);
+    switch (ex.kind) {
+      case 'XL': return [XL];
+      case 'XC': return [XC];
+      case 'w_from_f': return [w];
+      case 'f_from_w': case 'f_from_ut': return [w / PI2];
+      case 'T': case 'T_from_ut': return [PI2 / w];
+      case 'U_from_ut': return [g.U];
+      case 'Zphi': return [Z, Math.atan2(XL - XC, g.R) * 180 / Math.PI];
+      case 'I': case 'I_ut': return [g.U / Z];
+      case 'UR': case 'UR_ut': return [g.U / Z * g.R];
+      case 'UL': case 'UL_ut': return [g.U / Z * XL];
+      case 'UC': case 'UC_ut': return [g.U / Z * XC];
+      case 'U_parts': return [Math.hypot(g.UR, (g.UL || 0) - (g.UC || 0))];
+      case 'L_from_XL': return [g.XL / w];
+      case 'C_from_XC': return [1 / (w * g.XC)];
+      case 'R_from_UR_I': return [g.UR / g.I];
+      case 'L_from_UL_I': return [g.UL / g.I / w];
+      case 'C_from_UC_I': return [1 / (w * g.UC / g.I)];
+      case 'X_from_Z': {
+        const I = g.UR / g.R, X = Math.sqrt((g.U / I) ** 2 - g.R ** 2);
+        return [type === 'RL' ? X / w : 1 / (w * X)];
+      }
+      case 'I_after_fk': return [g.U / Zof(w * ex.k)];
+    }
+    throw new Error('unknown kind ' + ex.kind);
+  }
+  function physics(ex) {
+    const s = ex.state, tag = `(seed ${ex.seed}, ${ex.kind}, ${ex.ctype})`;
+    const has = t => E.COMPS[ex.ctype].includes(t);
+    ok(s.R >= 1 && s.R <= 1e5, `R out of range ${tag}`);
+    if (has('L')) ok(s.L >= 1e-4 && s.L <= 10, `L out of range ${s.L} ${tag}`);
+    if (has('C')) ok(s.C >= 1e-9 && s.C <= 1e-3, `C out of range ${s.C} ${tag}`);
+    ok(Math.abs(s.phi) >= 3 && Math.abs(s.phi) <= 87, `phi out of range ${s.phi} ${tag}`);
+    if (ex.ctype === 'RLC') ok(Math.abs(s.XL - s.XC) >= 0.25 * Math.max(s.XL, s.XC) - 1e-9, `near resonance ${tag}`);
+    ok(s.U > 0 && s.U <= 1000 && s.I >= 1e-5 && s.I <= 10, `U/I out of range ${tag}`);
+    ok(Math.abs(Math.hypot(s.UR, s.UL - s.UC) - s.U) <= 1e-9 * s.U, `voltage triangle ${tag}`);
+  }
+  function drawChecks(ex, stats) {
+    const r = E.Draw.render(ex), tag = `(seed ${ex.seed}, ${ex.kind}, ${ex.ctype})`;
+    ok(!/NaN|undefined|Infinity|null/.test(r.svg), `bad svg ${tag}`);
+    ok(r.boxes.length === E.COMPS[ex.ctype].length, `component count ${tag}`);
+    const b = r.boxes;
+    for (let i = 0; i < b.length; i++) for (let j = i + 1; j < b.length; j++) {
+      const A = b[i], B = b[j];
+      ok(!(A.x < B.x + B.w - 0.5 && B.x < A.x + A.w - 0.5 && A.y < B.y + B.h - 0.5 && B.y < A.y + A.h - 0.5), `component boxes overlap ${tag}`);
+    }
+    for (const bx of b) {
+      ok(bx.x >= 0 && bx.y >= 0 && bx.x + bx.w <= r.width && bx.y + bx.h <= r.height, `component outside drawing ${tag}`);
+      for (const s of bx.labels) ok(s.length * 7.8 <= bx.w - 6, `label too wide "${s}" ${tag}`);
+    }
+    for (const s of r.srcLines) ok(s.length * 7.8 <= r.width - 32, `source label too wide "${s}" ${tag}`);
+    const vms = (r.svg.match(/class="ckt-meter"/g) || []).length;
+    const expect = 1 + (ex.disp.current && ex.disp.current.meter ? 1 : 0) + ex.disp.comps.filter(c => c.extras.some(e => e.meter)).length;
+    ok(vms === expect, `meter count ${vms} != ${expect} ${tag}`);
+    stats.maxW = Math.max(stats.maxW, r.width); stats.maxH = Math.max(stats.maxH, r.height);
+  }
+
+  // ---------- יחידות ----------
+  ok(U.parseNumber('2,2') === 2.2 && isNaN(U.parseNumber('-5')) && U.parseNumber('-36.87', true) === -36.87 && U.parseNumber('−5', true) === -5, 'parse');
+  ok(U.check(-36.6, -36.87, '°') && !U.check(-36.2, -36.87, '°') && !U.check(36.87, -36.87, '°'), 'angle tolerance and sign');
+  ok(U.check(1.005, 1, 'Ω') && !U.check(1.02, 1, 'Ω'), 'tolerance 1%');
+  ok(E.fmt(2.2e-8, 'F') === '22 nF' && E.fmt(0.047, 'H') === '47 mH' && E.fmt(2000, 'rad/s') === '2000 rad/s' && E.fmt(5000, 'Hz') === '5 kHz', 'format');
+  ok(U.formatAnswer(-36.8699, '°') === '-36.87°' && U.formatAnswer(12566.3706, 'rad/s') === '12566.37 rad/s', 'formatAnswer');
+  ok(U.prefixHint(22, 22e-9, 'F') && !U.prefixHint(10, 22, '°'), 'prefix hint');
+  {
+    const a = E.makeExercise({ level: 5, types: ['RLC'], seed: 99 }), b = E.makeExercise({ level: 5, types: ['RLC'], seed: 99 });
+    ok(JSON.stringify(a.answers) === JSON.stringify(b.answers) && E.Draw.render(a).svg === E.Draw.render(b).svg, 'deterministic');
+  }
+
+  // ---------- דף הנחיתה: גרסה וקישורים ----------
+  {
+    const pages = { landing: '../index.html', ohm: '../ohm/index.html', ac: 'index.html' }, vers = {};
+    for (const [name, path] of Object.entries(pages)) {
+      const url = new URL(path, location.href), src = await (await fetch(url, { cache: 'no-store' })).text();
+      const m = /const VERSION = '(v\d+\.\d+)'/.exec(src);
+      vers[name] = m && m[1];
+      for (const a of new DOMParser().parseFromString(src, 'text/html').querySelectorAll('a[href]')) {
+        const href = a.getAttribute('href');
+        ok(!/^(\/|[a-z]+:)/i.test(href), `non-relative link "${href}" on ${name}`);
+        const r = await fetch(new URL(href, url), { cache: 'no-store' });
+        ok(r.ok, `broken link "${href}" on ${name}`);
+        log(`link ${name} -> ${href}: ${r.status}`);
+      }
+    }
+    log('versions: ' + JSON.stringify(vers));
+    ok(vers.landing === vers.ohm && vers.ohm === vers.ac && vers.ac === E.VERSION, 'site versions match');
+  }
+
+  // ---------- ריצה המונית ----------
+  const N = +(new URLSearchParams(location.search).get('n') || 40);
+  const typeSets = [['RL'], ['RC'], ['RLC'], ['RL', 'RC', 'RLC']];
+  const kindStats = {}, byLevel = {}, dstats = { maxW: 0, maxH: 0 };
+  let total = 0, meters = 0, ut = 0, vLetter = 0;
+  const t0 = performance.now();
+  for (const types of typeSets) for (let level = 1; level <= 5; level++) for (let i = 0; i < N; i++) {
+    const seed = (total * 2654435761 + 11) >>> 0;
+    let ex;
+    try { ex = E.makeExercise({ level, types, seed }); } catch (e) { ok(false, `makeExercise threw ${e.message} (seed ${seed})`); total++; continue; }
+    total++;
+    const ks = kindStats[ex.requestedKind] || (kindStats[ex.requestedKind] = { n: 0, tries: 0, maxTries: 0, fallback: 0 });
+    ks.n++; ks.tries += ex.tries; ks.maxTries = Math.max(ks.maxTries, ex.tries); if (ex.fallback) ks.fallback++;
+    const kl = E.KINDS.find(k => k.kind === ex.kind).lv;
+    ok(kl <= level, `kind above level ${ex.kind} L${level}`);
+    (byLevel[level] = byLevel[level] || {})[kl] = (byLevel[level][kl] || 0) + 1;
+    ok(types.includes(ex.ctype), 'ctype from selected');
+    if (ex.meters) meters++; if (ex.src !== 'U') ut++; if (ex.u === 'V') vLetter++;
+    physics(ex);
+    let v;
+    try { v = verify(ex); } catch (e) { ok(false, `verify threw ${e.message} (seed ${seed}, ${ex.kind})`); continue; }
+    ex.answers.forEach((a, j) => {
+      const good = a.unit === '°' ? Math.abs(v[j] - a.value) < 1e-9 : rel(v[j], a.value) < 1e-9;
+      ok(good, `answer mismatch ${ex.kind} ${a.sym}: engine ${a.value} vs verifier ${v[j]} (seed ${seed})`);
+      const shown = U.formatAnswer(a.value, a.unit);
+      const back = a.unit === '°' ? Number(shown.replace('°', '')) : parseShown(shown);
+      ok(U.check(back, a.value, a.unit), `displayed answer not accepted ${shown} (seed ${seed})`);
+    });
+    const tail = ex.steps.slice(-ex.answers.length);
+    ok(ex.steps.length > 0 && ex.answers.every((a, j) => Math.abs(tail[j].value - a.value) <= 1e-9 * Math.max(1, Math.abs(a.value))),
+      `last steps != answers (${ex.kind}, seed ${seed})`);
+    ok(ex.steps.every(s => isFinite(s.value)), `bad step value (seed ${seed})`);
+    drawChecks(ex, dstats);
+  }
+  const dt = performance.now() - t0;
+  log(`exercises: ${total}   time: ${(dt / 1000).toFixed(1)} s`);
+  log(`meters ${(100 * meters / total).toFixed(0)}%, u(t) ${(100 * ut / total).toFixed(0)}%, letter V ${(100 * vLetter / total).toFixed(0)}%`);
+  log(`drawing: max width ${dstats.maxW.toFixed(0)}, max height ${dstats.maxH.toFixed(0)}`);
+  log('level -> share of questions by kind level: ' + JSON.stringify(byLevel));
+  log('\nkind          n     avgTries  maxTries  fallback');
+  Object.keys(kindStats).sort().forEach(k => {
+    const s = kindStats[k];
+    log(`${k.padEnd(12)} ${String(s.n).padStart(5)}  ${(s.tries / s.n).toFixed(1).padStart(8)}  ${String(s.maxTries).padStart(8)}  ${String(s.fallback).padStart(8)}`);
+  });
+  const missing = E.KINDS.map(k => k.kind).filter(k => !kindStats[k]);
+  ok(!missing.length, 'kinds never generated: ' + missing.join(','));
+  if (failures.length) log('\nFAILURES (first 40):\n' + failures.join('\n'));
+  document.getElementById('log').textContent = lines.join('\n');
+  document.getElementById('summary').innerHTML =
+    `<p class="${fail ? 'fail' : 'pass'}">${fail ? 'נכשל' : 'עבר'}: <bdi dir="ltr">${pass} passed, ${fail} failed</bdi></p>`;
+  window.TEST_RESULT = { pass, fail, total, failures, text: lines.join('\n') };
+
+  // ---------- גלריה ----------
+  const gal = [];
+  ['RL', 'RC', 'RLC'].forEach((t, ti) => E.KINDS.filter(k => !k.needs || (k.needs === 'X1' ? t !== 'RLC' : E.COMPS[t].includes(k.needs)))
+    .forEach((k, i) => {
+      if ((i + ti) % 3) return;
+      const ex = E.makeExercise({ level: k.lv, types: [t], kind: k.kind, seed: 700 + i * 13 + ti });
+      gal.push(`<figure><figcaption>${t} ${k.kind} seed ${ex.seed}${ex.meters ? ' meters' : ''}</figcaption>${E.Draw.render(ex).svg}</figure>`);
+    }));
+  document.getElementById('gallery').innerHTML = gal.join('');
+})().catch(e => { document.getElementById('log').textContent = 'ERROR: ' + e.stack; window.TEST_RESULT = { error: String(e.stack) }; });
+</script>
+</body>
+</html>
