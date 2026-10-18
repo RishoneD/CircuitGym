@@ -120,9 +120,20 @@
     if (ex.ctype === 'M') ok(hasS && hasP, `mixed must contain S and P (seed ${ex.seed})`);
     if (ex.ctype === 'M') ok(ex.n >= 3, 'mixed with <3 resistors');
   }
-  function drawOne(ex, stats, mode) {
-    const r = E.Draw.render(ex, mode ? { mode } : undefined);
-    const tag = `(seed ${ex.seed}, ${ex.ctype}, L${ex.level}, ${mode || 'random'})`;
+  function drawOne(ex, stats, mode, meters) {
+    const opts = {};
+    if (mode) opts.mode = mode;
+    if (meters != null) opts.meters = meters;
+    const r = E.Draw.render(ex, opts);
+    const tag = `(seed ${ex.seed}, ${ex.ctype}, L${ex.level}, ${mode || 'random'}${meters ? ', meters' : ''})`;
+    {  // מספר המכשירים בציור = זרמים ומתחים מוצגים (כשהמכשירים פעילים)
+      const on = meters != null ? meters : ex.meters;
+      const want = !on ? 0 : (ex.ann.IT !== undefined ? 1 : 0) +
+        Object.values(ex.ann.resExtra).reduce((n, l) => n + l.filter(e => e.q === 'I' || e.q === 'V').length, 0);
+      const drawn = (r.svg.match(/class="ckt-meter"/g) || []).length;
+      ok(drawn === want, `meter count ${drawn} != ${want} ${tag}`);
+      ok(r.boxes.reduce((n, b) => n + b.meters, 0) + (r.mainMeter ? 1 : 0) === want, `meter bookkeeping ${tag}`);
+    }
     ok(!/NaN|undefined|Infinity/.test(r.svg), `bad svg ${tag}`);
     const b = r.boxes;
     ok(b.length === ex.n, `box per resistor ${tag}`);
@@ -136,7 +147,8 @@
       ok(bx.x >= 0 && bx.y >= 0 && bx.x + bx.w <= r.width + 0.5 && bx.y + bx.h <= r.height + 0.5, `R${bx.idx} outside the drawing ${tag}`);
       for (const s of bx.labels) ok(s.length * 7.8 <= bx.labelRoom + 0.5, `label too wide "${s}" ${tag}`);
     }
-    const st = stats[mode || 'random'] || (stats[mode || 'random'] = { maxW: 0, maxH: 0, n: 0, vertical: 0, split: 0 });
+    const key = (mode || 'random') + (meters ? '+meters' : '');
+    const st = stats[key] || (stats[key] = { maxW: 0, maxH: 0, n: 0, vertical: 0, split: 0 });
     st.n++; st.maxW = Math.max(st.maxW, r.width); st.maxH = Math.max(st.maxH, r.height);
     if (r.vertical) st.vertical++; if (r.split) st.split++;
     return r;
@@ -147,6 +159,8 @@
     ok(v.vertical, `vertical mode has a vertical block (seed ${ex.seed})`);
     const r = drawOne(ex, stats, null);
     ok(E.Draw.render(ex).svg === r.svg, `drawing is deterministic (seed ${ex.seed})`);
+    drawOne(ex, stats, 'classic', true);
+    drawOne(ex, stats, 'vertical', true);
     return r;
   }
 
@@ -182,6 +196,23 @@
     const o = { level: 4, types: ['M'], power: true, prefixes: true, seed: 12345 };
     const a = E.makeExercise(o), b = E.makeExercise(o);
     ok(a.answer === b.answer && E.Draw.render(a).svg === E.Draw.render(b).svg, 'same seed -> same exercise');
+  }
+
+  // ---------- מכשירי מדידה ----------
+  {
+    let rel = 0, on = 0, same = 0, n = 0;
+    for (let s = 0; s < 600; s++) {
+      const o = { level: 1 + s % 5, types: ['S', 'P', 'M'], power: true, prefixes: s % 2 === 0, seed: s * 7919 + 3 };
+      const a = E.makeExercise(o), b = E.makeExercise(Object.assign({ meters: true }, o));
+      n++;
+      if (a.answer === b.answer && a.text === b.text && JSON.stringify(a.steps) === JSON.stringify(b.steps)) same++;
+      ok(!a.meters, 'meters off when switch off');
+      const hasIV = b.ann.IT !== undefined || Object.values(b.ann.resExtra).some(l => l.some(e => e.q === 'I' || e.q === 'V'));
+      if (hasIV) { rel++; if (b.meters) on++; } else ok(!b.meters, 'no meters without currents/voltages');
+    }
+    ok(same === n, `meters switch changed the exercise (${n - same} of ${n})`);
+    ok(on / rel > 0.5 && on / rel < 0.7, `meters share ${(on / rel).toFixed(2)}`);
+    log(`meters: on in ${(100 * on / rel).toFixed(0)}% of exercises with currents/voltages`);
   }
 
   // ---------- דף הנחיתה: גרסה וקישורים ----------
