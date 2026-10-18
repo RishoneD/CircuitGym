@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>בדיקות: תרגול זרמי חוגים</title>
+<style>
+  body { font-family: "Segoe UI", Arial, sans-serif; margin: 16px; color: #1f2937; background: #f4f6f9; }
+  h1 { font-size: 20px; } h2 { font-size: 17px; margin-top: 24px; }
+  pre { background: #fff; border: 1px solid #d9dee6; border-radius: 8px; padding: 10px; direction: ltr; text-align: left; white-space: pre-wrap; font-size: 13px; }
+  .pass { color: #15803d; font-weight: bold; } .fail { color: #b42318; font-weight: bold; }
+  .gal { direction: ltr; display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 12px; }
+  figure { margin: 0; background: #fff; border: 1px solid #d9dee6; border-radius: 8px; padding: 6px; min-width: 0; }
+  figcaption { font-size: 12px; color: #6b7280; }
+  figure svg { display: block; width: 100%; height: auto; }
+</style>
+</head>
+<body>
+<h1>בדיקות מנוע זרמי חוגים וגלריית ציורים</h1>
+<p>דורש שרת מקומי. פרמטר <code dir="ltr">?n=40</code> = מספר תרגילים לכל צירוף (מתגים × רמה).</p>
+<div id="summary"></div>
+<pre id="log"></pre>
+<h2>גלריה</h2>
+<div id="gallery" class="gal"></div>
+
+<script>
+(async function () {
+  const lines = [], log = s => lines.push(s);
+  const html = await (await fetch('index.html', { cache: 'no-store' })).text();
+  const sc = document.createElement('script');
+  sc.textContent = new DOMParser().parseFromString(html, 'text/html').getElementById('engine').textContent;
+  document.head.appendChild(sc);
+  const E = window.Engine, U = E.Units;
+
+  let pass = 0, fail = 0;
+  const failures = [];
+  function ok(cond, msg) { if (cond) pass++; else { fail++; if (failures.length < 40) failures.push(msg); } }
+  const rel = (a, b) => Math.abs(a - b) / Math.abs(b);
+  const MULT = { M: 1e6, k: 1e3, m: 1e-3, 'µ': 1e-6 };
+  function parseShown(str) {
+    const m = /^(\d+(?:\.\d+)?) (M|k|m|µ)?(Ω|V|A|W)$/.exec(str);
+    if (!m) throw new Error('bad displayed value: ' + str);
+    return Number(m[1]) * (m[2] ? MULT[m[2]] : 1);
+  }
+
+  // ---------- מאמת עצמאי: שיטת זרמי חוגים (קרמר), רק מתוך מה שמוצג ----------
+  // מבנה המעגל (מיקום רכיבים, כיווני סוללות, + של מדי זרם) נראה בשרטוט; הערכים נלקחים מהנתונים המוצגים בלבד.
+  const SLOTS = E.BRANCH_SLOTS;
+  function shownCircuit(ex) {
+    const g = {};
+    for (const x of E.givensList(ex)) { ok(!(x.q in g), 'duplicate given ' + x.q); g[x.q] = parseShown(x.text); }
+    const br = {};
+    for (const b of ['L', 'M', 'R']) br[b] = [].concat(...SLOTS[b].map(s => ex.circuit.slots[s])).map(x => ({
+      k: x.k, idx: x.idx, pol: x.pol, ref: x,
+      v: x.k === 'R' ? g['R' + x.idx] : x.k === 'E' ? g['E' + x.idx] : undefined,
+      // מד זרם: הקריאה, והכיוון לפי ה-+ (צד הכניסה) שמשורטט
+      I: x.k === 'A' ? g['A' + x.idx] * (x.I > 0 ? 1 : -1) : undefined,
+    }));
+    return br;
+  }
+  function meshSolve(br) {
+    const R = b => br[b].filter(x => x.k === 'R').reduce((s, x) => s + x.v, 0);
+    const S = b => br[b].filter(x => x.k === 'E').reduce((s, x) => s + x.pol * x.v, 0);
+    // J1: חוג שמאלי עם כיוון השעון; J2: חוג ימני עם כיוון השעון
+    const a11 = R('L') + R('M'), a12 = -R('M'), a22 = R('M') + R('R');
+    const b1 = S('L') - S('M'), b2 = S('M') - S('R'), det = a11 * a22 - a12 * a12;
+    const J1 = (b1 * a22 - a12 * b2) / det, J2 = (a11 * b2 - a12 * b1) / det;
+    return { L: J1, M: J2 - J1, R: -J2 };   // זרם כל ענף בכיוון המסלול (מלמטה למעלה)
+  }
+  function potentials(br, I) {   // פוטנציאל בקצות כל פריט, מהצומת התחתון
+    const P = new Map();
+    for (const b of ['L', 'M', 'R']) {
+      let phi = 0;
+      br[b].forEach(x => {
+        const pin = phi;
+        if (x.k === 'R') phi -= I[b] * x.v; else if (x.k === 'E') phi += x.pol * x.v;
+        P.set(x.ref, { in: pin, out: phi });
+      });
+      P.set('T' + b, phi);
+    }
+    return P;
+  }
+  const phiOf = (P, p) => (p.node ? (p.node === 'T' ? P.get('TL') : 0) : P.get(p.item)[p.end]);
+  const branchOf = (br, ref) => ['L', 'M', 'R'].find(b => br[b].some(x => x.ref === ref));
+  function verify(ex) {
+    const br = shownCircuit(ex);
+    const fwd = !ex.kind.endsWith('_rev');
+    let I;
+    if (fwd) {
+      I = meshSolve(br);
+      const P = potentials(br, I);
+      ok(Math.abs(P.get('TL') - P.get('TM')) < 1e-9 && Math.abs(P.get('TL') - P.get('TR')) < 1e-9, `KVL inconsistent (seed ${ex.seed})`);
+      const res = idx => { const b = ['L', 'M', 'R'].find(b => br[b].some(x => x.k === 'R' && x.idx === idx)); return { b, x: br[b].find(x => x.k === 'R' && x.idx === idx) }; };
+      const symIdx = s => +s.replace(/\D/g, '');
+      switch (ex.kind) {
+        case 'I_R': { const r = res(symIdx(ex.answers[0].sym)); return [Math.abs(I[r.b])]; }
+        case 'P_R': { const r = res(symIdx(ex.answers[0].sym)); return [I[r.b] ** 2 * r.x.v]; }
+        case 'I_R_dir': {
+          const r = res(symIdx(ex.answers[0].sym)), aIn = ex.marks.A.end === 'in';
+          return [Math.abs(I[r.b]), (I[r.b] > 0) === aIn ? 'AB' : 'BA'];
+        }
+        case 'I12': return ex.answers.map(a => Math.abs(I[branchOf(br, ex.circuit.bats.find(e => e.idx === symIdx(a.sym)))]));
+        case 'V_AB': return [Math.abs(phiOf(P, ex.marks.A) - phiOf(P, ex.marks.B))];
+      }
+    }
+    // הפוכות: זרמי הענפים מתוך מדי הזרם וחוק הצמתים
+    I = {};
+    for (const b of ['L', 'M', 'R']) { const m = br[b].find(x => x.k === 'A'); if (m) I[b] = m.I; }
+    const missing = ['L', 'M', 'R'].filter(b => I[b] === undefined);
+    ok(missing.length === 1, `expected exactly one branch without a meter (seed ${ex.seed})`);
+    I[missing[0]] = -['L', 'M', 'R'].filter(b => b !== missing[0]).reduce((s, b) => s + I[b], 0);
+    // ענף שכל הנתונים בו ידועים נותן את המתח בין הצמתים
+    const complete = b => br[b].every(x => x.k === 'A' || typeof x.v === 'number');
+    const kb = ['L', 'M', 'R'].find(complete);
+    ok(!!kb, `no fully known branch (seed ${ex.seed})`);
+    const walk = (b, skip) => br[b].reduce((phi, x) => x === skip ? phi : x.k === 'R' ? phi - I[b] * x.v : x.k === 'E' ? phi + x.pol * x.v : phi, 0);
+    const V = walk(kb);
+    ['L', 'M', 'R'].filter(complete).forEach(b => ok(Math.abs(walk(b) - V) < 1e-6 * Math.max(1, Math.abs(V)), `known branches disagree (seed ${ex.seed})`));
+    if (ex.kind === 'VAB_rev') return [Math.abs(V)];
+    const tgt = ex.answers[0].sym, idx = +tgt.replace(/\D/g, ''), k = tgt[0];
+    const b = ['L', 'M', 'R'].find(b => br[b].some(x => x.k === k && x.idx === idx));
+    const x = br[b].find(x => x.k === k && x.idx === idx);
+    ok(br[b].every(y => y === x || y.k === 'A' || typeof y.v === 'number'), `target branch has another unknown (seed ${ex.seed})`);
+    const rest = walk(b, x);   // פוטנציאל הקצה בלי הנעלם
+    return [k === 'R' ? (rest - V) / I[b] : (V - rest) / x.pol];
+  }
+  function drawChecks(ex, st) {
+    const r = E.Draw.render(ex), tag = `(seed ${ex.seed}, ${ex.kind})`, c = ex.circuit;
+    ok(!/NaN|undefined|Infinity|null/.test(r.svg), `bad svg ${tag}`);
+    ok((r.svg.match(/<polyline/g) || []).length === c.res.length, `resistor count ${tag}`);
+    ok((r.svg.match(/ckt-plate ckt-short/g) || []).length === c.bats.length, `battery count ${tag}`);
+    ok((r.svg.match(/class="ckt-meter"/g) || []).length === ex.meters.length, `meter count ${tag}`);
+    ok((r.svg.match(/font-weight="bold">[AB]</g) || []).length === (ex.marks ? 2 : 0), `A/B marks ${tag}`);
+    ok((r.svg.match(/class="ckt-q"/g) || []).length === [...ex.hidden.values()].filter(v => v === 'ask').length, `question marks ${tag}`);
+    for (const [x, P] of r.placed) ok(P.cx > 0 && P.cx < r.width && P.cy > 0 && P.cy < r.height, `item outside ${tag}`);
+    // פריטים באותו מקטע לא חופפים
+    const bySlot = {};
+    for (const [x, P] of r.placed) (bySlot[P.slot] = bySlot[P.slot] || []).push(P);
+    for (const list of Object.values(bySlot)) for (let i = 1; i < list.length; i++) {
+      const a = list[i - 1], b = list[i], gap = Math.hypot(b.pin[0] - a.pout[0], b.pin[1] - a.pout[1]);
+      ok(gap >= 20, `items too close (${gap.toFixed(0)}) ${tag}`);
+    }
+    st.maxW = Math.max(st.maxW, r.width);
+  }
+
+  // ---------- יחידות ורמות ----------
+  ok(U.isClean(0.025) && !U.isClean(0.0251234) && U.check(1.005, 1) && !U.check(1.02, 1), 'units');
+  ok(E.levelChoices(2, true, 1, 1).map(o => o.level).join() === '3,2', 'level choices');
+  {
+    const a = E.makeExercise({ level: 5, power: true, prefixes: true, seed: 77 }), b = E.makeExercise({ level: 5, power: true, prefixes: true, seed: 77 });
+    ok(JSON.stringify(a.answers) === JSON.stringify(b.answers) && E.Draw.render(a).svg === E.Draw.render(b).svg, 'deterministic');
+  }
+
+  // ---------- גרסה וקישורים בכל האתר ----------
+  {
+    const pages = { landing: '../index.html', ohm: '../ohm/index.html', mesh: 'index.html', ac: '../ac/index.html' }, vers = {};
+    for (const [name, path] of Object.entries(pages)) {
+      const url = new URL(path, location.href), src = await (await fetch(url, { cache: 'no-store' })).text();
+      const m = /const VERSION = '(v\d+\.\d+)'/.exec(src);
+      vers[name] = m && m[1];
+      for (const a of new DOMParser().parseFromString(src, 'text/html').querySelectorAll('a[href]')) {
+        const href = a.getAttribute('href');
+        ok(!/^(\/|[a-z]+:)/i.test(href), `non-relative link "${href}" on ${name}`);
+        const r = await fetch(new URL(href, url), { cache: 'no-store' });
+        ok(r.ok, `broken link "${href}" on ${name}`);
+        log(`link ${name} -> ${href}: ${r.status}`);
+      }
+    }
+    log('versions: ' + JSON.stringify(vers));
+    ok(new Set(Object.values(vers)).size === 1 && vers.mesh === E.VERSION, 'site versions match');
+    const land = await (await fetch('../index.html', { cache: 'no-store' })).text();
+    const order = [...land.matchAll(/class="card" href="([^"]+)"/g)].map(m => m[1]).join(' ');
+    ok(order === 'ohm/index.html mesh/index.html ac/index.html', 'landing card order: ' + order);
+  }
+
+  // ---------- ריצה המונית ----------
+  const N = +(new URLSearchParams(location.search).get('n') || 40);
+  const kindStats = {}, byLevel = {}, dst = { maxW: 0 };
+  let total = 0, maxMs = 0;
+  const t0 = performance.now();
+  for (const power of [false, true]) for (const prefixes of [false, true]) for (let level = 1; level <= 5; level++) for (let i = 0; i < N; i++) {
+    const seed = (total * 2654435761 + 5) >>> 0;
+    const t1 = performance.now();
+    let ex;
+    try { ex = E.makeExercise({ level, power, prefixes, seed }); } catch (e) { ok(false, `makeExercise threw ${e.message} (seed ${seed})`); total++; continue; }
+    maxMs = Math.max(maxMs, performance.now() - t1);
+    total++;
+    const ks = kindStats[ex.requestedKind] || (kindStats[ex.requestedKind] = { n: 0, tries: 0, maxTries: 0, fallback: 0 });
+    ks.n++; ks.tries += ex.tries; ks.maxTries = Math.max(ks.maxTries, ex.tries); if (ex.fallback) ks.fallback++;
+    ok(ex.clean, `exercise without clean values (seed ${seed})`);
+    const kl = E.KINDS.find(k => k.kind === ex.kind).lv;
+    (byLevel[level] = byLevel[level] || {})[kl] = (byLevel[level][kl] || 0) + 1;
+    ok(kl <= level, 'kind above level');
+    ok(power || ex.kind !== 'P_R', 'power off');
+    const c = ex.circuit, Lc = E.LEVELS[level];
+    // רמה קובעת את מבנה המעגל
+    ok(Lc.nE.includes(c.bats.length) && Lc.nR.includes(c.res.length), `circuit size L${level}: E${c.bats.length} R${c.res.length} (seed ${seed})`);
+    ok(c.res.every((r, i) => r.idx === i + 1) && c.bats.every((e, i) => e.idx === i + 1), 'numbering');
+    let v;
+    try { v = verify(ex); } catch (e) { ok(false, `verify threw ${e.message} (seed ${seed}, ${ex.kind})`); continue; }
+    ex.answers.forEach((a, j) => {
+      if (a.dir) { ok(v[j] === a.value, `direction mismatch (seed ${seed})`); return; }
+      ok(rel(v[j], a.value) < 1e-6, `answer mismatch ${ex.kind} ${a.sym}: engine ${a.value} vs verifier ${v[j]} (seed ${seed})`);
+      ok(U.isClean(a.value), `answer not clean ${a.value} (seed ${seed})`);
+      const shown = U.formatAnswer(a.value, a.unit, prefixes);
+      ok(U.check(parseShown(shown), a.value), `displayed answer not accepted ${shown} (seed ${seed})`);
+    });
+    for (const x of E.givensList(ex)) ok(rel(parseShown(x.text), x.q[0] === 'A' ? ex.meters[+x.q.slice(1) - 1].reading : x.q[0] === 'R'
+      ? c.res[+x.q.slice(1) - 1].R : c.bats[+x.q.slice(1) - 1].E) < 1e-9, `displayed given rounded ${x.sym} (seed ${seed})`);
+    drawChecks(ex, dst);
+  }
+  const dt = performance.now() - t0;
+  log(`exercises: ${total}   time: ${(dt / 1000).toFixed(1)} s   slowest: ${maxMs.toFixed(0)} ms   max width ${dst.maxW}`);
+  log('level -> share by kind level: ' + JSON.stringify(byLevel));
+  log('\nkind        n     avgTries  maxTries  fallback');
+  Object.keys(kindStats).sort().forEach(k => {
+    const s = kindStats[k];
+    log(`${k.padEnd(10)} ${String(s.n).padStart(5)}  ${(s.tries / s.n).toFixed(1).padStart(8)}  ${String(s.maxTries).padStart(8)}  ${String(s.fallback).padStart(8)}`);
+  });
+  if (failures.length) log('\nFAILURES (first 40):\n' + failures.join('\n'));
+  document.getElementById('log').textContent = lines.join('\n');
+  document.getElementById('summary').innerHTML =
+    `<p class="${fail ? 'fail' : 'pass'}">${fail ? 'נכשל' : 'עבר'}: <bdi dir="ltr">${pass} passed, ${fail} failed</bdi></p>`;
+  window.TEST_RESULT = { pass, fail, total, failures, text: lines.join('\n') };
+
+  const gal = [];
+  E.KINDS.forEach((k, i) => [k.lv, 5].forEach((lv, j) => {
+    const ex = E.makeExercise({ level: Math.max(lv, k.lv), power: true, prefixes: (i + j) % 2 === 0, seed: 300 + i * 7 + j, kind: k.kind });
+    gal.push(`<figure><figcaption>L${ex.level} ${ex.kind} seed ${ex.seed} | ${ex.text}</figcaption>${E.Draw.render(ex).svg}</figure>`);
+  }));
+  document.getElementById('gallery').innerHTML = gal.join('');
+})().catch(e => { document.getElementById('log').textContent = 'ERROR: ' + e.stack; window.TEST_RESULT = { error: String(e.stack) }; });
+</script>
+</body>
+</html>
