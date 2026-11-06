@@ -49,7 +49,7 @@
 (function (global) {
   'use strict';
 
-  const VERSION = 'v1.6';
+  const VERSION = 'v1.8';
   const MAX_LEVEL = 5;
   const MAX_ATTEMPTS = 3;
   const TOL = 0.01;        // סטייה יחסית מותרת בבדיקת תשובה (1%)
@@ -327,13 +327,157 @@
     return defs[defs.length - 1];
   }
 
-  // opts: { level, types:['S','P','M'], power, prefixes, meters, prevKind?, seed?, kind? }
+  // ---------------- Multi-part exercises (levels 2–5) ----------------
+  // סעיף: { text, answers: [{ sym, value, unit, q }], steps }; q = הגודל (לבדיקות): RT, IT, VT, I3, V3, P3, R5
+  // הליכה מהמקור כלפי מטה, כשבשורש כבר ידועים הגדלים ב-initial (למשל V_T ו-I_T מסעיפים קודמים)
+  function walkDown2(ctx, target, needs, initial) {
+    const path = pathTo(target);
+    let known = new Set(initial);
+    const ensure = (nd, q) => { if (!known.has(q)) { ohmStep(ctx, nd, q); known.add(q); } };
+    for (let i = 0; i < path.length - 1; i++) {
+      const p = path[i], ch = path[i + 1], q = p.type === 'S' ? 'I' : 'V';
+      ensure(p, q);
+      sameStep(ctx, p, ch, q, p.type);
+      known = new Set([q]);
+    }
+    needs.forEach(q => ensure(target, q));
+  }
+  // מנגד עם נתון ידוע כלפי מעלה, עד הגודל finalQ בשורש
+  function walkUp2(ctx, leafNd, given, finalQ) {
+    let nd = leafNd, known = new Set([given]);
+    const ensure = (n, q) => { if (!known.has(q)) { ohmStep(ctx, n, q); known.add(q); } };
+    while (nd.parent) {
+      const p = nd.parent, q = p.type === 'S' ? 'I' : 'V';
+      ensure(nd, q);
+      sameStep(ctx, nd, p, q, p.type);
+      nd = p;
+      known = new Set([q]);
+    }
+    ensure(nd, finalQ);
+  }
+  // מריצים את השלבים, ומקדימים להם רק את ההתנגדויות השקולות שהשתמשו בהן
+  function withFolds(f, run) {
+    const tmp = { steps: [], f, used: new Set() }, out = { steps: [], f };
+    run(tmp);
+    const used = [...tmp.used].filter(nd => nd.type !== 'R' && !pathTo(nd).slice(0, -1).some(an => tmp.used.has(an)));
+    used.forEach(nd => foldSteps(out, nd));
+    return out.steps.concat(tmp.steps);
+  }
+  const A = (sym, value, unit, q) => ({ sym, value, unit, q });
+  const pRT = (c, f) => { const ctx = { steps: [], f }; foldSteps(ctx, c.root);
+    return { text: 'חשבו את ההתנגדות השקולה R_T של המעגל.', answers: [A('R_T', c.root.Req, 'Ω', 'RT')], steps: ctx.steps }; };
+  const pIT = (c, f) => ({ text: 'חשבו את הזרם הכולל I_T שמספק המקור.', answers: [A('I_T', c.root.I, 'A', 'IT')],
+    steps: withFolds(f, ctx => ohmStep(ctx, c.root, 'I')) });
+  const pVT = (c, f) => ({ text: 'חשבו את מתח המקור V_T.', answers: [A('V_T', c.VT, 'V', 'VT')],
+    steps: withFolds(f, ctx => ohmStep(ctx, c.root, 'V')) });
+  const pLeaf = (c, f, t, q, initial) => ({
+    text: q === 'I' ? `חשבו את הזרם I_${t.idx} הזורם דרך הנגד R_${t.idx}.` : `חשבו את המתח V_${t.idx} על הנגד R_${t.idx}.`,
+    answers: [A(q + '_' + t.idx, t[q], UNIT[q], q + t.idx)], steps: withFolds(f, ctx => walkDown2(ctx, t, [q], initial)) });
+  const pP = (c, f, t, initial) => ({ text: `חשבו את ההספק P_${t.idx} המתפתח בנגד R_${t.idx}.`, answers: [A('P_' + t.idx, t.V * t.I, 'W', 'P' + t.idx)],
+    steps: withFolds(f, ctx => { walkDown2(ctx, t, ['I', 'V'], initial); powerStep(ctx, t); }) });
+  const pITup = (c, f, t, q0) => ({ text: 'חשבו את הזרם הכולל I_T שמספק המקור.', answers: [A('I_T', c.root.I, 'A', 'IT')],
+    steps: withFolds(f, ctx => walkUp2(ctx, t, q0, 'I')) });
+
+  const CUR_NICE = [1, 1.2, 1.5, 2, 2.4, 2.5, 3, 4, 5, 6, 8].flatMap(m => [1e-3, 1e-2, 1e-1, 1].map(e => Number((m * e).toPrecision(6))));
+  const V_NICE = [1, 1.2, 1.5, 2, 2.4, 2.5, 3, 4, 4.5, 5, 6, 7.5, 8, 9, 10, 12, 15, 18, 20, 24];
+  // סגנונות: fwd (מתח המקור וכל הנגדים נתונים), given (נתון זרם או מתח בנגד אחד, כמו בדוגמאות 2–3),
+  // rx (מעורב: מתח המקור וזרם בנגד נתונים, ונגד טורי לא ידוע, כמו בדוגמה 1)
+  function multiParts(rng, c, level, power, f, style) {
+    const simple = c.ctype !== 'M', leaves = c.leaves;
+    const nMin = simple || level === 2 ? 2 : 3, nMax = simple || level === 2 ? 3 : 4, n = rng.int(nMin, nMax);
+    const ann = baseAnn(c), parts = [];
+    let clean = [], textExtra = '';
+    if (style === 'fwd') {
+      parts.push(pRT(c, f), pIT(c, f));
+      const ts = rng.shuffle(leaves);
+      if (parts.length < n) parts.push(pLeaf(c, f, ts[0], rng.pick(['I', 'V']), ['V', 'I']));
+      if (parts.length < n) parts.push(power && rng.next() < 0.6 ? pP(c, f, ts[1], ['V', 'I']) : pLeaf(c, f, ts[1], rng.pick(['I', 'V']), ['V', 'I']));
+      return { ann, parts, clean, textExtra };
+    }
+    if (style === 'given') {
+      // נתון ערך עגול בנגד t; מתח המקור נקבע כך שהנתון יתקבל (כל הגדלים לינאריים במתח)
+      const t = rng.pick(leaves), q0 = rng.pick(['I', 'V']);
+      c.VT = 1; solve(c);
+      const unit = t[q0], cands = (q0 === 'I' ? CUR_NICE : V_NICE).filter(x => x / unit >= 2 && x / unit <= 100);
+      if (!cands.length) return null;
+      c.VT = rng.pick(cands) / unit; solve(c);
+      ann.VT = null;
+      ann.resExtra[t.idx] = [{ q: q0, value: t[q0] }];
+      clean = [t[q0]];
+      textExtra = q0 === 'I' ? ` הזרם הזורם דרך הנגד R_${t.idx} הוא I_${t.idx} = ${f(t.I, 'A')}.` : ` המתח על הנגד R_${t.idx} הוא V_${t.idx} = ${f(t.V, 'V')}.`;
+      const m = rng.pick(leaves.filter(x => x !== t));
+      parts.push(pITup(c, f, t, q0));
+      if (n >= 3) parts.push(power && rng.next() < 0.4 ? pP(c, f, m, ['I']) : pLeaf(c, f, m, rng.pick(['I', 'V']), ['I']));
+      if (n >= 4) parts.push(pRT(c, f));
+      parts.push(pVT(c, f));
+      return { ann, parts, clean, textExtra };
+    }
+    // rx: השורש טורי ויש בו נגד בודד x; הזרם (או המתח) הנתון בנגד אחר, שהדרך ממנו לשורש לא עוברת דרך x
+    const xs = c.root.type === 'S' ? c.root.children.filter(ch => ch.type === 'R') : [];
+    if (!xs.length) return null;
+    const x = rng.pick(xs), t = rng.pick(leaves.filter(l => l !== x)), q0 = rng.pick(['I', 'I', 'V']);
+    // בנייה לאחור: היחס בין הנתון בנגד t לזרם הכולל לא תלוי ב-x. בוחרים נתון עגול,
+    // ממנו הזרם הכולל וההתנגדות השקולה (V_T נתון ועגול), ומהן x (התשובה, לא חייבת להיות עגולה)
+    const ratio = t[q0] / c.root.I, rest = sum(c.root.children.filter(ch => ch !== x).map(ch => ch.Req));
+    const opts = (q0 === 'I' ? CUR_NICE : V_NICE).map(g => ({ g, Rx: c.VT / (g / ratio) - rest }))
+      .filter(o => o.Rx >= 1 && o.Rx <= 1e5 && o.Rx >= 0.1 * rest && o.Rx <= 10 * rest);
+    if (!opts.length) return null;
+    x.R = rng.pick(opts).Rx;
+    solve(c);
+    ann.R = baseAnn(c).R;
+    ann.R[x.idx] = null;
+    ann.resExtra[t.idx] = [{ q: q0, value: t[q0] }];
+    clean = [t[q0]];
+    textExtra = q0 === 'I' ? ` הזרם הזורם דרך הנגד R_${t.idx} הוא I_${t.idx} = ${f(t.I, 'A')}.` : ` המתח על הנגד R_${t.idx} הוא V_${t.idx} = ${f(t.V, 'V')}.`;
+    const others = c.root.children.filter(ch => ch !== x);
+    const rtSteps = [{ note: 'חוק אוהם על כל המעגל: ההתנגדות השקולה', lhs: 'R_T', formula: 'V_T / I_T', subst: `${f(c.VT, 'V')} / ${f(c.root.I, 'A')}`, value: c.root.Req, unit: 'Ω' }];
+    const rxCtx = { steps: [], f };
+    others.forEach(o => foldSteps(rxCtx, o));
+    rxCtx.steps.push({ note: 'בחיבור טורי השקולה היא סכום ההתנגדויות, לכן מחסרים את שאר ההתנגדויות',
+      lhs: 'R_' + x.idx, formula: ['R_T', ...others.map(o => 'R_' + o.sub)].join(' − '),
+      subst: [f(c.root.Req, 'Ω'), ...others.map(o => f(o.Req, 'Ω'))].join(' − '), value: x.R, unit: 'Ω' });
+    parts.push(pITup(c, f, t, q0),
+      { text: 'חשבו את ההתנגדות השקולה R_T של המעגל.', answers: [A('R_T', c.root.Req, 'Ω', 'RT')], steps: rtSteps },
+      { text: `חשבו את התנגדות הנגד R_${x.idx}.`, answers: [A('R_' + x.idx, x.R, 'Ω', 'R' + x.idx)], steps: rxCtx.steps });
+    if (n >= 4) { const m = rng.pick(leaves.filter(l => l !== x && l !== t)); if (m) parts.push(power ? pP(c, f, m, ['V', 'I']) : pLeaf(c, f, m, rng.pick(['I', 'V']), ['V', 'I'])); }
+    return { ann, parts, clean, textExtra };
+  }
+  function makeMulti(rng, seed, opts, level, n, ctypes) {
+    const f = (x, u) => Units.format(x, u, opts.prefixes, 4);
+    let built = null, c = null, tries = 0;
+    // הסגנון נבחר פעם אחת לתרגיל (אחרת הסגנונות הקלים "מנצחים" תמיד); rx רק במעורב
+    const ctype0 = rng.pick(ctypes);
+    let style = level === 2 ? 'fwd' : rng.pick(ctype0 === 'M' ? ['fwd', 'given', 'rx'] : ['fwd', 'given']);
+    for (let t = 0; t < 2 * MAX_TRIES && !built; t++) {
+      if (t === MAX_TRIES) style = 'given';   // לא אמור לקרות; הבדיקות מודדות
+      c = buildCircuit(rng, n, ctype0, opts.prefixes);
+      // rx: מתח המקור מוצג, ולכן מנסים מתחים מהרשימה עד שהנתון בנגד עגול
+      for (const vt of [c.VT]) {
+        tries++;
+        c.VT = vt; solve(c);
+        const b = multiParts(rng, c, level, opts.power, f, style);
+        if (b && b.clean.every(Units.isClean)) { built = b; break; }
+      }
+    }
+    if (!built) throw new Error('no exercise');
+    const hasIV = Object.values(built.ann.resExtra).some(l => l.some(e => e.q === 'I' || e.q === 'V'));
+    const meters = !!opts.meters && hasIV && makeRng((seed ^ 0x2545F491) >>> 0).next() < METER_SHARE;
+    const text = 'באיור נתון מעגל חשמלי.' + (meters ? ' קריאת מכשיר המדידה מוצגת באיור.' : built.textExtra);
+    return {
+      version: VERSION, seed, level, n, kind: style, format: style, ctype: c.ctype, prefixes: !!opts.prefixes, power: !!opts.power, meters,
+      circuit: c, ann: built.ann, text, parts: built.parts, tries,
+    };
+  }
+
+  // opts: { level, types:['S','P','M'], power, prefixes, meters, prevKind?, seed?, kind? (שאלה אחת, לבדיקות) }
   function makeExercise(opts) {
     const seed = opts.seed != null ? opts.seed >>> 0 : randomSeed();
     const rng = makeRng(seed);
     const level = opts.level, n = level + 1;
     const ctypes = allowedTypes(opts.types, n);
     if (!ctypes.length) throw new Error('אין סוג מעגל אפשרי ברמה ' + level);
+    // רמות 2–5: תרגיל עם סעיפים. רמה 1 (או kind מפורש): שאלה אחת
+    if (level >= 2 && !opts.kind) return makeMulti(rng, seed, opts, level, n, ctypes);
     let kinds = allowedKinds(level, opts.power);
     if (opts.prevKind && kinds.length > 1) kinds = kinds.filter(k => k.kind !== opts.prevKind);
     const requestedKind = opts.kind || weightedPick(rng, kinds).kind;
@@ -364,7 +508,8 @@
       version: VERSION, seed, level, n, kind, requestedKind, fallback: kind !== requestedKind,
       ctype: c.ctype, prefixes: !!opts.prefixes, power: !!opts.power, meters,
       circuit: c, ann: q.ann, target: q.target, sym: q.sym, answer: q.answer, unit: q.unit,
-      text: q.text, steps: ctx.steps, tries,
+      text: q.text, steps: ctx.steps, tries, format: 'single',
+      parts: [{ answers: [{ sym: q.sym, value: q.answer, unit: q.unit }], steps: ctx.steps }],
     };
   }
   function givensList(ex) {
@@ -669,7 +814,7 @@
   syncSettings();
 
   // ---------- תרגיל ----------
-  const stepsHtml = ex => '<ol class="steps">' + ex.steps.map(step => {
+  const stepsHtml = (ex, pi) => '<ol class="steps">' + ex.parts[pi].steps.map(step => {
     const parts = [step.lhs, step.formula, step.subst].filter(Boolean).map(p => symHtml(esc(p)));
     return `<li><div class="sn">${esc(step.note)}</div><div class="eq" dir="ltr">${parts.join(' = ')} = ${esc(E.Units.format(step.value, step.unit, ex.prefixes, 4))}</div></li>`;
   }).join('') + '</ol>';
@@ -680,7 +825,7 @@
     ctypeHtml: ex => 'מעגל ' + E.TYPE_NAMES[ex.ctype],
     render: ex => E.Draw.render(ex),
     givens: ex => E.givensList(ex),
-    parts: ex => [{ answers: [{ type: 'num', sym: ex.sym, value: ex.answer, unit: ex.unit, prefix: ex.prefixes }] }],
+    parts: ex => ex.parts.map(p => ({ text: p.text, answers: p.answers.map(a => ({ type: 'num', sym: a.sym, value: a.value, unit: a.unit, prefix: ex.prefixes })) })),
     solution: { title: 'פתרון שלב אחר שלב', html: stepsHtml, onCorrect: true },
     failSuffix: 'הנה הפתרון המלא:',
   });

@@ -42,7 +42,7 @@
 (function (global) {
   'use strict';
 
-  const VERSION = 'v1.6';
+  const VERSION = 'v1.8';
   const MAX_LEVEL = 5;
   const MAX_ATTEMPTS = 3;
   const TOL = 0.01;        // סטייה יחסית מותרת (1%)
@@ -71,7 +71,14 @@
   const R_ORDER = ['Lt', 'Lv', 'Lb', 'Mv', 'Rt', 'Rv', 'Rb'];   // מספור נגדים כמו בשאלות לדוגמה
   const OUTER = { L: ['Lt', 'Lv', 'Lb'], R: ['Rt', 'Rv', 'Rb'] };
 
-  function buildCircuit(rng, cfg) {
+  // בנייה לאחור (כדי שכל תשובות הסעיפים יהיו עגולות): בוחרים זרמים עגולים בענפים הצדדיים,
+  // הזרם האמצעי נובע מחוק הצמתים, מתח הצמתים מהענף האמצעי (או עגול כשיש בו סוללה),
+  // ומתח כל סוללה נגזר: E = V + I·R. עדיפות לסוללה עגולה (חצאי וולט); אחרת עד 3 ספרות משמעותיות.
+  const mant = (ms, e0, e1) => { const out = []; for (let e = e0; e <= e1; e++) ms.forEach(m => out.push(Number((m * Math.pow(10, e)).toPrecision(6)))); return out; };
+  const CUR = mant([1, 1.2, 1.5, 2, 2.4, 2.5, 3, 4, 5, 6, 8], -4, 0);
+  const V_NICE = [1, 2, 3, 4, 5, 6, 8, 9, 10, 12, 15, 18, 20, 24, 30];
+  const halfVolt = x => Math.abs(x * 2 - Math.round(x * 2)) < 1e-9;
+  function buildCircuit(rng, cfg, roundE) {
     const slots = { Lb: [], Lv: [], Lt: [], Mv: [], Rb: [], Rv: [], Rt: [] };
     // נגדים: אחד בכל ענף לפחות (באמצע תמיד), השאר במקומות פנויים בענפים החיצוניים
     const pos = new Set(['Mv', rng.pick(OUTER.L), rng.pick(OUTER.R)]);
@@ -80,13 +87,31 @@
     const scale = rng.pick(VALUES.RS);
     let ri = 0;
     R_ORDER.forEach(p => { if (pos.has(p)) slots[p].push({ k: 'R', idx: ++ri, R: rng.pick(VALUES.RB) * scale, slot: p }); });
-    // סוללות: שמאל, (אמצע), ימין, בכיוון אקראי; בענף אנכי סדר הנגד והסוללה אקראי
-    const eBranches = cfg.nE === 3 ? ['Lv', 'Mv', 'Rv'] : ['Lv', 'Rv'];
-    eBranches.forEach((p, i) => {
-      const e = { k: 'E', idx: i + 1, E: rng.pick(VALUES.E), pol: rng.next() < 0.5 ? 1 : -1, slot: p };
+    // סוללות: שמאל, (אמצע), ימין; בענף אנכי סדר הנגד והסוללה אקראי. הערך והכיוון נקבעים בהמשך.
+    const eSlots = cfg.nE === 3 ? ['Lv', 'Mv', 'Rv'] : ['Lv', 'Rv'];
+    const bats = eSlots.map((p, i) => {
+      const e = { k: 'E', idx: i + 1, E: 0, pol: 1, slot: p };
       if (rng.next() < 0.5) slots[p].push(e); else slots[p].unshift(e);
+      return e;
     });
-    return solve({ slots, nE: cfg.nE, nR: cfg.nR });
+    const c = { slots, nE: cfg.nE, nR: cfg.nR };
+    const Rb = b => sum(items(c, b).filter(x => x.k === 'R').map(x => x.R));
+    const pickI = b => {
+      const ok = CUR.filter(i => i * Rb(b) >= 0.5 && i * Rb(b) <= 30);
+      return ok.length ? rng.pick(ok) * (rng.next() < 0.5 ? 1 : -1) : null;
+    };
+    const IL = pickI('L'), IR = pickI('R');
+    if (IL == null || IR == null) return null;
+    const I = { L: IL, R: IR, M: -(IL + IR) };   // זרם לאורך המסלול (מלמטה למעלה)
+    const V = cfg.nE === 3 ? rng.pick(V_NICE) * (rng.next() < 0.5 ? 1 : -1) : -I.M * Rb('M');
+    if (Math.abs(V) > 60) return null;
+    for (const e of bats) {
+      const b = e.slot[0], sv = V + I[b] * Rb(b), E = Math.abs(sv);
+      if (E < 1 || E > 60 || !Units.isClean(E) || (roundE && !halfVolt(E))) return null;
+      e.E = Number(E.toPrecision(6));
+      e.pol = sv > 0 ? 1 : -1;
+    }
+    return solve(c);
   }
   const items = (c, b) => [].concat(...BRANCH_SLOTS[b].map(s => c.slots[s]));
   function solve(c) {
@@ -117,83 +142,103 @@
   }
 
   // ---------------- Questions ----------------
-  // מחזירות: { answers, text, clean:[...], marks?:{A,B}, hidden?:Map(item -> 'ask'|'name'), meters?:[branch] }
   // נקודה = { item, end:'in'|'out' } או { node:'T'|'B' }
   const ptPhi = (c, p) => (p.node ? (p.node === 'T' ? c.V : 0) : p.item[p.end === 'in' ? 'phiIn' : 'phiOut']);
+  const ptKey = p => (p.node ? p.node : p.item.slot + ':' + p.item.k + p.item.idx + ':' + p.end);
   function allPoints(c) {
     const pts = [{ node: 'T' }, { node: 'B' }];
     for (const b of ['L', 'M', 'R']) items(c, b).forEach(x => pts.push({ item: x, end: 'in' }, { item: x, end: 'out' }));
     return pts;
   }
-  const BAT_TEXT = i => `E_${i}`;
+  // רמה 1: שאלה אחת
   const Q = {
     I_R(rng, c) {
       const r = rng.pick(c.res), v = Math.abs(r.I);
-      return { answers: [{ sym: `I_R${r.idx}`, value: v, unit: 'A' }], clean: [v], text: `חשבו את הזרם הזורם דרך הנגד R_${r.idx}.` };
+      return { answers: [{ sym: `I_R${r.idx}`, value: v, unit: 'A' }], ref: r, text: `חשבו את הזרם הזורם דרך הנגד R_${r.idx}.` };
     },
     P_R(rng, c) {
       const r = rng.pick(c.res), v = r.I * r.I * r.R;
-      return { answers: [{ sym: `P_R${r.idx}`, value: v, unit: 'W' }], clean: [v], text: `חשבו את ההספק המתפתח בנגד R_${r.idx}.` };
+      return { answers: [{ sym: `P_R${r.idx}`, value: v, unit: 'W' }], ref: r, text: `חשבו את ההספק המתפתח בנגד R_${r.idx}.` };
     },
-    I_R_dir(rng, c) {
-      const r = rng.pick(c.res), v = Math.abs(r.I), aIn = rng.next() < 0.5;
-      const marks = { A: { item: r, end: aIn ? 'in' : 'out' }, B: { item: r, end: aIn ? 'out' : 'in' } };
-      const dir = (r.I > 0) === aIn ? 'AB' : 'BA';   // זרם חיובי זורם מ-in ל-out
-      return { answers: [{ sym: `I_R${r.idx}`, value: v, unit: 'A' }, { dir: true, value: dir }], clean: [v], marks,
-        text: `חשבו את הזרם הזורם דרך הנגד R_${r.idx}, וקבעו את כיוונו: מ-A ל-B או מ-B ל-A.` };
-    },
-    I12(rng, c) {
-      const [a, b] = rng.shuffle(c.bats).slice(0, 2).sort((x, y) => x.idx - y.idx);
-      const va = Math.abs(a.I), vb = Math.abs(b.I);
-      return { answers: [{ sym: `I_${a.idx}`, value: va, unit: 'A' }, { sym: `I_${b.idx}`, value: vb, unit: 'A' }], clean: [va, vb],
-        text: `חשבו את הזרם I_${a.idx} הזורם דרך הסוללה ${BAT_TEXT(a.idx)} ואת הזרם I_${b.idx} הזורם דרך הסוללה ${BAT_TEXT(b.idx)}.` };
-    },
-    V_AB(rng, c) {
-      const pts = rng.shuffle(allPoints(c));
-      for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) {
-        const A = pts[i], B = pts[j], v = Math.abs(ptPhi(c, A) - ptPhi(c, B));
-        if (samePlace(A, B) || v < 0.5) continue;
-        return { answers: [{ sym: 'V_AB', value: v, unit: 'V' }], clean: [v], marks: { A, B }, text: 'חשבו את המתח בין הנקודות A ו-B.' };
-      }
-      return null;
-    },
-    // הפוכות: מדי זרם על שני ענפים (ולכן כל הזרמים ידועים). ענף אחד נשאר ידוע לגמרי, ממנו מתח הצמתים.
-    R_rev(rng, c) { return reverse(rng, c, 'R'); },
-    E_rev(rng, c) { return reverse(rng, c, 'E'); },
-    VAB_rev(rng, c) { return reverse(rng, c, 'V'); },
   };
-  // נקודות שמשורטטות באותו מקום (קצה פריט שנוגע בצומת או בפריט הבא) מטופלות כאחת
-  function samePlace(A, B) {
-    const key = p => (p.node ? p.node : p.item.slot + ':' + p.item.k + p.item.idx + ':' + p.end);
-    if (key(A) === key(B)) return true;
-    return false;
+  // רמות 2–5: סעיפים. כל סעיף: { kind, text, answers, ref? }
+  const curPart = (r, kind) => ({ kind: kind || 'IR', ref: r, text: `חשבו את הזרם הזורם דרך הנגד R_${r.idx}.`,
+    answers: [{ sym: `I_R${r.idx}`, value: Math.abs(r.I), unit: 'A' }] });
+  const powPart = r => ({ kind: 'PR', ref: r, text: `חשבו את ההספק המתפתח בנגד R_${r.idx}.`,
+    answers: [{ sym: `P_R${r.idx}`, value: r.I * r.I * r.R, unit: 'W' }] });
+  function dirPart(rng, r, n1, n2, marks) {
+    const aIn = rng.next() < 0.5;
+    marks[n1] = { item: r, end: aIn ? 'in' : 'out' };
+    marks[n2] = { item: r, end: aIn ? 'out' : 'in' };
+    return { kind: 'IRdir', ref: r, names: [n1, n2],
+      text: `חשבו את הזרם הזורם דרך הנגד R_${r.idx}, וקבעו את כיוונו: מ-${n1} ל-${n2} או מ-${n2} ל-${n1}.`,
+      // זרם חיובי זורם מ-in ל-out
+      answers: [{ sym: `I_R${r.idx}`, value: Math.abs(r.I), unit: 'A' }, { dir: true, from: n1, to: n2, value: (r.I > 0) === aIn ? 'XY' : 'YX' }] };
   }
-  function reverse(rng, c, what) {
-    const brs = rng.shuffle(['L', 'M', 'R']);
-    const metered = brs.slice(0, 2);   // שני מדי זרם
-    let target, known;
-    if (what === 'R') target = rng.pick(c.res);
-    else if (what === 'E') target = rng.pick(c.bats);
-    // ענף ידוע לגמרי: לא הענף של הנעלם
-    const cand = ['L', 'M', 'R'].filter(b => !target || b !== target.branch);
-    known = rng.pick(cand);
-    const hidden = new Map();
-    if (target) hidden.set(target, 'ask');
-    // לפעמים נגד נוסף בלי ערך (כמו בדוגמה), בענף שאינו הענף הידוע
-    const extraPool = c.res.filter(r => r !== target && r.branch !== known && (!target || r.branch !== target.branch || what === 'V'));
-    if (extraPool.length && rng.next() < 0.5) hidden.set(rng.pick(extraPool), 'name');
-    if (what === 'V') {   // כמו בדוגמה: נגדים בלי ערך, המתח בין הצמתים
-      const pool = c.res.filter(r => r.branch !== known);
-      rng.shuffle(pool).slice(0, rng.int(1, Math.min(2, pool.length))).forEach(r => hidden.set(r, 'name'));
+  function batPart(rng, c) {
+    const [a, b] = rng.shuffle(c.bats).slice(0, 2).sort((x, y) => x.idx - y.idx);
+    return { kind: 'I12', refs: [a, b],
+      text: `חשבו את הזרם I_${a.idx} הזורם דרך הסוללה E_${a.idx} ואת הזרם I_${b.idx} הזורם דרך הסוללה E_${b.idx}.`,
+      answers: [{ sym: `I_${a.idx}`, value: Math.abs(a.I), unit: 'A' }, { sym: `I_${b.idx}`, value: Math.abs(b.I), unit: 'A' }] };
+  }
+  // מתח בין שתי נקודות שלא מסומנות כבר
+  function vabPart(rng, c, n1, n2, marks) {
+    const used = new Set(Object.values(marks).map(ptKey));
+    const pts = rng.shuffle(allPoints(c)).filter(p => !used.has(ptKey(p)));
+    for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) {
+      const A = pts[i], B = pts[j], v = Math.abs(ptPhi(c, A) - ptPhi(c, B));
+      if (ptKey(A) === ptKey(B) || v < 0.5 || !Units.isClean(v)) continue;
+      marks[n1] = A; marks[n2] = B;
+      return { kind: 'VAB', names: [n1, n2], text: `חשבו את המתח בין הנקודות ${n1} ו-${n2}.`, answers: [{ sym: `V_${n1}${n2}`, value: v, unit: 'V' }] };
     }
-    const readings = metered.map(b => Math.abs(c.branch[b].I));
-    const top = rng.next() < 0.5, marks = what === 'V' ? { A: { node: top ? 'T' : 'B' }, B: { node: top ? 'B' : 'T' } } : null;
-    let answers, text;
-    const intro = 'במעגל מחוברים מדי זרם אידיאליים. ';
-    if (what === 'R') { answers = [{ sym: `R_${target.idx}`, value: target.R, unit: 'Ω' }]; text = intro + `חשבו את התנגדות הנגד R_${target.idx}.`; }
-    else if (what === 'E') { answers = [{ sym: `E_${target.idx}`, value: target.E, unit: 'V' }]; text = intro + `חשבו את מתח הסוללה E_${target.idx}.`; }
-    else { const v = Math.abs(c.V); if (v < 0.5) return null; answers = [{ sym: 'V_AB', value: v, unit: 'V' }]; text = intro + 'חשבו את המתח בין הנקודות A ו-B.'; }
-    return { answers, text, clean: readings.concat(answers.map(a => a.value)), hidden, meters: metered, marks, known };
+    return null;
+  }
+  // שאלה רגילה עם סעיפים: זרמי הסוללות, זרם בנגד (לפעמים עם כיוון), מתח בין נקודות (מרמה 3), הספק
+  function forwardParts(rng, c, level, power) {
+    const marks = {}, letters = ['A', 'B', 'C', 'D'], res = rng.shuffle(c.res);
+    const nextPair = () => letters.splice(0, 2);
+    const cur = r => (rng.next() < 0.5 ? dirPart(rng, r, ...nextPair(), marks) : curPart(r));
+    const parts = [batPart(rng, c), cur(res[0])];
+    const extra = r => (power && rng.next() < 0.6 ? powPart(r) : curPart(r));
+    if (level === 2) {
+      if (rng.next() < 0.5) parts.push(extra(res[1]));
+    } else {
+      const v = vabPart(rng, c, ...nextPair(), marks);
+      if (!v) return null;
+      parts.push(v);
+      if (rng.next() < 0.5) parts.push(extra(res[1]));
+    }
+    return { parts, marks, hidden: new Map(), metered: [] };
+  }
+  // שאלה הפוכה עם מדי זרם (כמו בדוגמה): שני מדים, ולכן כל הזרמים ידועים.
+  // ענף אחד ידוע לגמרי (ממנו V_AB), ובכל אחד משני הענפים האחרים לכל היותר נעלם אחד.
+  const unkPart = x => (x.k === 'R'
+    ? { kind: 'Rrev', ref: x, text: `חשבו את התנגדות הנגד R_${x.idx}.`, answers: [{ sym: `R_${x.idx}`, value: x.R, unit: 'Ω' }] }
+    : { kind: 'Erev', ref: x, text: `חשבו את מתח הסוללה E_${x.idx}.`, answers: [{ sym: `E_${x.idx}`, value: x.E, unit: 'V' }] });
+  function reverseParts(rng, c, power) {
+    if (Math.abs(c.V) < 0.5) return null;
+    const brs = ['L', 'M', 'R'], K = rng.pick(brs), [X, Y] = rng.shuffle(brs.filter(b => b !== K));
+    const metered = rng.shuffle(brs).slice(0, 2), hidden = new Map();
+    const top = rng.next() < 0.5, marks = { A: { node: top ? 'T' : 'B' }, B: { node: top ? 'B' : 'T' } };
+    const pickUnknown = b => {
+      const es = items(c, b).filter(x => x.k === 'E'), rs = items(c, b).filter(x => x.k === 'R');
+      return es.length && rng.next() < 0.35 ? es[0] : rng.pick(rs);
+    };
+    const u1 = pickUnknown(X);
+    hidden.set(u1, 'ask');
+    const parts = [{ kind: 'VABrev', text: 'חשבו את המתח בין הנקודות A ו-B.', answers: [{ sym: 'V_AB', value: Math.abs(c.V), unit: 'V' }] }, unkPart(u1)];
+    if (rng.next() < 0.6) { const u2 = pickUnknown(Y); hidden.set(u2, 'ask'); parts.push(unkPart(u2)); }
+    const want = parts.length === 3 ? rng.int(3, 4) : 3;
+    if (parts.length < want) {
+      // זרם בנגד בענף בלי מד (מחוק הצמתים), או הספק בנגד ידוע
+      const nb = brs.find(b => !metered.includes(b));
+      const cand = c.res.filter(r => r.branch === nb && !hidden.has(r));
+      if (cand.length && rng.next() < 0.6) parts.push(curPart(rng.pick(cand), 'IRrev'));
+      else if (power) parts.push(powPart(rng.pick(c.res.filter(r => !hidden.has(r)))));
+      else if (cand.length) parts.push(curPart(rng.pick(cand), 'IRrev'));
+    }
+    if (parts.length < 3) return null;
+    return { parts, marks, hidden, metered, known: K };
   }
 
   // ---------------- Levels ----------------
@@ -201,49 +246,42 @@
     1: { nE: [2], nR: [3] }, 2: { nE: [2], nR: [4, 5] }, 3: { nE: [3], nR: [3, 4, 5] },
     4: { nE: [2, 3], nR: [3, 4, 5] }, 5: { nE: [3], nR: [5] },
   };
-  const KINDS = [
-    { kind: 'I_R', lv: 1 }, { kind: 'P_R', lv: 1, power: true },
-    { kind: 'I_R_dir', lv: 2 }, { kind: 'I12', lv: 2 },
-    { kind: 'V_AB', lv: 3 },
-    { kind: 'R_rev', lv: 4 }, { kind: 'E_rev', lv: 4 }, { kind: 'VAB_rev', lv: 4 },
-  ];
-  const CURRENT_LEVEL_SHARE = 0.6;
-  // בחירת רמה בסוף תרגיל (קוד משותף)
+  // רמה 1: שאלה אחת. רמות 2–3: שאלה עם סעיפים. רמה 4: הפוכה עם מדי זרם. רמה 5: אחת מהשתיים.
+  const LEVEL_FORMATS = { 1: ['single'], 2: ['fwd'], 3: ['fwd'], 4: ['rev'], 5: ['fwd', 'rev'] };
   const levelChoices = (level, correct, attempt, min) => global.Core.levelChoices(level, correct, attempt, min, MAX_LEVEL, MAX_ATTEMPTS);
+  const INTRO = { fwd: 'באיור נתון מעגל חשמלי.', rev: 'באיור נתון מעגל חשמלי שמחוברים אליו מדי זרם אידיאליים. קריאות המדים מוצגות באיור.' };
 
-  function pickKind(rng, level, power, prevKind) {
-    const ok = k => !k.power || power;
-    const at = lv => KINDS.filter(k => k.lv === lv && ok(k));
-    let pool;
-    if (level === 1 || rng.next() < CURRENT_LEVEL_SHARE) pool = at(level).length ? at(level) : KINDS.filter(k => k.lv <= level && ok(k));
-    else pool = at(rng.int(1, level - 1));
-    if (!pool.length) pool = KINDS.filter(k => k.lv <= level && ok(k));
-    if (prevKind && pool.length > 1) pool = pool.filter(k => k.kind !== prevKind);
-    return rng.pick(pool).kind;
-  }
-
-  // opts: { level, power, prefixes, prevKind?, seed?, kind? }
+  // opts: { level, power, prefixes, prevKind?, seed?, format? (לבדיקות) }
   function makeExercise(opts) {
     const seed = opts.seed != null ? opts.seed >>> 0 : randomSeed();
     const rng = makeRng(seed), level = opts.level, L = LEVELS[level];
-    const requestedKind = opts.kind || pickKind(rng, level, opts.power, opts.prevKind);
-    let tries = 0, c, q, kind = requestedKind, clean = true;
-    for (const k of [requestedKind, 'I_R']) {
-      kind = k;
-      for (let t = 0; t < MAX_TRIES; t++) {
-        tries++;
-        c = buildCircuit(rng, { nE: rng.pick(L.nE), nR: rng.pick(L.nR) });
-        if (!validCircuit(c)) continue;
-        q = Q[k](rng, c);
-        if (q && q.clean.every(Units.isClean)) break;
-        q = null;
-      }
-      if (q) break;
+    const format = opts.format || rng.pick(LEVEL_FORMATS[level]);
+    let kind = format;
+    if (format === 'single') {
+      const pool = ['I_R'].concat(opts.power ? ['P_R'] : []).filter(k => pool1(k, opts.prevKind));
+      kind = rng.pick(pool.length ? pool : ['I_R']);
     }
-    if (!q) { clean = false; q = Q.I_R(rng, c); }   // לא אמור לקרות; הבדיקות מוודאות
+    let tries = 0, c = null, built = null;
+    for (let t = 0; t < MAX_TRIES && !built; t++) {
+      tries++;
+      c = buildCircuit(rng, { nE: rng.pick(L.nE), nR: rng.pick(L.nR) }, t < MAX_TRIES / 2);
+      if (!c || !validCircuit(c)) continue;
+      let b = null;
+      if (format === 'single') {
+        const q = Q[kind](rng, c);
+        b = { parts: [{ kind, ref: q.ref, answers: q.answers }], text: q.text, marks: {}, hidden: new Map(), metered: [] };
+      } else {
+        b = format === 'rev' ? reverseParts(rng, c, opts.power) : forwardParts(rng, c, level, opts.power);
+        if (b) b.text = INTRO[format];
+      }
+      if (!b) continue;
+      const vals = b.parts.flatMap(p => p.answers.filter(a => !a.dir).map(a => a.value)).concat(b.metered.map(x => c.branch[x].I));
+      if (vals.every(Units.isClean)) built = b;
+    }
+    if (!built) throw new Error('no clean exercise');
     // מדי זרם: מקום אקראי בענף (פס עליון או תחתון בענף חיצוני, אנכי באמצע). + בצד שבו הזרם נכנס.
     const meters = [];
-    (q.meters || []).forEach((b, i) => {
+    built.metered.forEach((b, i) => {
       const slot = b === 'M' ? 'Mv' : rng.pick(b === 'L' ? ['Lt', 'Lb'] : ['Rt', 'Rb']);
       const m = { k: 'A', idx: i + 1, slot, branch: b, I: c.branch[b].I, reading: Math.abs(c.branch[b].I) };
       if (rng.next() < 0.5) c.slots[slot].push(m); else c.slots[slot].unshift(m);
@@ -251,11 +289,11 @@
     });
     if (meters.length) solve(c);   // מחשב מחדש פוטנציאלים לכל הפריטים, כולל המדים (אין להם השפעה)
     return {
-      version: VERSION, seed, level, kind, requestedKind, fallback: kind !== requestedKind, tries, clean,
-      prefixes: !!opts.prefixes, power: !!opts.power,
-      circuit: c, answers: q.answers, text: q.text, marks: q.marks || null, hidden: q.hidden || new Map(), meters, known: q.known,
+      version: VERSION, seed, level, format, kind, tries, prefixes: !!opts.prefixes, power: !!opts.power,
+      circuit: c, text: built.text, parts: built.parts, marks: built.marks, hidden: built.hidden, meters, known: built.known,
     };
   }
+  const pool1 = (k, prev) => k !== prev;
   function shownValue(ex, x) {   // undefined = שם בלבד, null = נעלם, מספר = נתון
     const h = ex.hidden.get(x);
     if (h === 'ask') return null;
@@ -353,7 +391,7 @@
     }
 
     // נקודות A ו-B
-    if (ex.marks) for (const name of ['A', 'B']) {
+    for (const name of Object.keys(ex.marks || {})) {
       const p = ex.marks[name];
       let x, y, lx, ly;
       if (p.node) { x = xM; y = p.node === 'T' ? yT : yB; lx = x + 10; ly = p.node === 'T' ? y - 8 : y + 20; }
@@ -378,7 +416,7 @@
   }
 
   global.Engine = {
-    VERSION, MAX_LEVEL, MAX_ATTEMPTS, TOL, MAX_TRIES, VALUES, LEVELS, KINDS, BRANCH_SLOTS,
+    VERSION, MAX_LEVEL, MAX_ATTEMPTS, TOL, MAX_TRIES, VALUES, LEVELS, LEVEL_FORMATS, BRANCH_SLOTS, CUR,
     makeRng, randomSeed, Units, makeExercise, givensList, shownValue, currentSummary, levelChoices,
     minLevel: () => 1, Draw: { render, D },
   };
@@ -391,7 +429,6 @@
   'use strict';
   const E = window.Engine, $ = id => document.getElementById(id), esc = Core.esc, symHtml = Core.symHtml;
   const readSettings = () => ({ level: +$('level').value, power: $('power').checked, prefixes: $('prefixes').checked });
-  const DIR_OPTIONS = [{ value: 'AB', label: 'מ-A ל-B' }, { value: 'BA', label: 'מ-B ל-A' }];
   // אחרי 3 ניסיונות: רק תשובות סופיות, ולצדן הזרם בכל נגד וכיוונו בשרטוט (בלי שיטת פתרון)
   const summaryHtml = ex => '<ul class="summary">' + E.currentSummary(ex).map(s =>
     `<li><bdi dir="ltr">${symHtml(s.sym)}</bdi>: <bdi dir="ltr">${esc(s.text)}</bdi>, ${s.dir}</li>`).join('') + '</ul>';
@@ -401,9 +438,10 @@
     makeExercise: (s, level, prevKind) => E.makeExercise({ level, power: s.power, prefixes: s.prefixes, prevKind }),
     render: ex => E.Draw.render(ex),
     givens: ex => E.givensList(ex),
-    parts: ex => [{ answers: ex.answers.map(a => (a.dir
-      ? { type: 'choice', label: 'כיוון הזרם', short: 'הכיוון', options: DIR_OPTIONS, value: a.value }
-      : { type: 'num', sym: a.sym, value: a.value, unit: a.unit, prefix: ex.prefixes })) }],
+    parts: ex => ex.parts.map(p => ({ text: p.text, answers: p.answers.map(a => (a.dir
+      ? { type: 'choice', label: 'כיוון הזרם', short: 'הכיוון', value: a.value,
+          options: [{ value: 'XY', label: `מ-${a.from} ל-${a.to}` }, { value: 'YX', label: `מ-${a.to} ל-${a.from}` }] }
+      : { type: 'num', sym: a.sym, value: a.value, unit: a.unit, prefix: ex.prefixes })) })),
     solution: { title: 'הזרמים במעגל', html: summaryHtml, onCorrect: false },
     failSuffix: 'למטה הזרמים בכל הנגדים.',
   });

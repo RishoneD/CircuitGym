@@ -46,7 +46,7 @@
 (function (global) {
   'use strict';
 
-  const VERSION = 'v1.6';
+  const VERSION = 'v1.8';
   const MAX_LEVEL = 5;
   const MAX_ATTEMPTS = 3;
   const TOL = 0.01;        // סטייה יחסית מותרת (1%)
@@ -418,7 +418,6 @@
     { kind: 'I_after_fk', lv: 5 },
   ];
   const fits = (k, type) => !k.needs || (k.needs === 'X1' ? type !== 'RLC' : COMPS[type].includes(k.needs));
-  const CURRENT_LEVEL_SHARE = 0.6;   // שאר השאלות מרמות נמוכות יותר
   const METER_SHARE = 1 / 3;
   function kindOptions(rng, k, level) {
     const ut = k.ut === 'always' || (k.ut === 'maybe' && level >= 4 && rng.next() < 0.5);
@@ -431,17 +430,195 @@
   const levelChoices = (level, correct, attempt, min) => global.Core.levelChoices(level, correct, attempt, min, MAX_LEVEL, MAX_ATTEMPTS);
 
 
-  // opts: { level, types:['RL','RC','RLC'], prevKind?, seed?, kind?, type? }
+  // ---------------- Multi-part exercises (levels 2–5) ----------------
+  // כל סעיף: { text, answers: [{ sym, value, unit, q }], steps } — q = הגודל (לבדיקות)
+  const ANS = (sym, value, unit, q) => ({ sym, value, unit, q });
+  const part = (text, answers, steps) => ({ text, answers, steps });
+  const newCtx = (o, s) => ({ steps: [], o, s });
+  const reacts = type => COMPS[type].filter(t => t !== 'R');
+  const INTRO_AC = 'באיור נתון מעגל טורי המחובר למקור מתח חילופין.';
+  function randOpts(rng, ut) {
+    const o = { u: rng.next() < 0.5 ? 'U' : 'V', src: ut ? (rng.next() < 0.5 ? 'ut2' : 'utn') : 'U', meters: false };
+    o.fmode = ut ? 'w' : rng.next() < 0.7 ? 'f' : 'w';
+    return o;
+  }
+  function xPart(o, s, type) {
+    const ts = reacts(type), ctx = newCtx(o, s);
+    ts.forEach(t => reactStep(ctx, t, s.w));
+    const what = ts.length === 2 ? 'את היגב הסליל X_L ואת היגב הקבל X_C' : ts[0] === 'L' ? 'את היגב הסליל X_L' : 'את היגב הקבל X_C';
+    return part(`חשבו ${what}.`, ts.map(t => ANS('X_' + t, t === 'L' ? s.XL : s.XC, 'Ω', 'X' + t)), ctx.steps);
+  }
+  function zSteps2(ctx) {   // Z מתוך היגבים שכבר ידועים
+    const s = ctx.s;
+    if (s.type === 'RLC') S(ctx, 'ההיגב הכולל', 'X', 'X_L − X_C', `${fmt(s.XL, 'Ω')} − ${fmt(s.XC, 'Ω')}`, s.X, 'Ω');
+    const xs = s.type === 'RL' ? 'X_L' : s.type === 'RC' ? 'X_C' : 'X';
+    S(ctx, 'עכבת המעגל', 'Z', `√(R² + ${xs}²)`, `√((${fmt(s.R, 'Ω')})² + (${fmt(Math.abs(s.X), 'Ω')})²)`, s.Z, 'Ω');
+  }
+  function zPart(o, s) { const ctx = newCtx(o, s); zSteps2(ctx); return part('חשבו את עכבת המעגל Z.', [ANS('Z', s.Z, 'Ω', 'Z')], ctx.steps); }
+  function zphiPart(o, s, pre) {
+    const ctx = newCtx(o, s);
+    if (pre) pre(ctx);
+    zSteps2(ctx); phiStep(ctx, s.X);
+    return part('חשבו את עכבת המעגל Z ואת הפרש המופע φ בין מתח המקור לזרם.', [ANS('Z', s.Z, 'Ω', 'Z'), ANS('φ', s.phi, '°', 'phi')], ctx.steps);
+  }
+  function iPart(o, s) { const ctx = newCtx(o, s); iStep(ctx, s.Z); return part('חשבו את הזרם I במעגל.', [ANS('I', s.I, 'A', 'I')], ctx.steps); }
+  function uxPart(o, s, t, withI) {
+    const ctx = newCtx(o, s), sym = `${o.u}_${t}`, val = s['U' + t];
+    if (withI) iStep(ctx, s.Z);
+    S(ctx, `חוק אוהם על ${COMP_NAME[t]}`, sym, `I·${xSym(t)}`, `${fmt(s.I, 'A')}·${fmt(xVal(s, t), 'Ω')}`, val, 'V');
+    return part(`חשבו את המתח ${sym} על ${COMP_NAME[t]}.`, [ANS(sym, val, 'V', 'U' + t)], ctx.steps);
+  }
+  function wPart(o, s) {
+    const ctx = newCtx(o, s);
+    S(ctx, 'מהירות זוויתית', 'ω', '2π·f', `2π·${fmt(s.f, 'Hz')}`, s.w, 'rad/s');
+    return part('חשבו את המהירות הזוויתית ω של מתח המקור.', [ANS('ω', s.w, 'rad/s', 'w')], ctx.steps);
+  }
+  function ufPart(o, s) {   // מתוך u(t): ω, ואז U ו-f (סדר השלבים: התשובות בסוף)
+    const ctx = newCtx(o, s);
+    wStep(ctx); uStep(ctx);
+    S(ctx, 'תדירות', 'f', 'ω / (2π)', `${fmt(s.w, 'rad/s')} / (2π)`, s.f, 'Hz');
+    return part(`חשבו את הערך היעיל של מתח המקור ${o.u} ואת התדירות f.`, [ANS(o.u, s.U, 'V', 'U'), ANS('f', s.f, 'Hz', 'f')], ctx.steps);
+  }
+  function lcFromXPart(o, s, ts, Xs) {   // L ו/או C מתוך היגב ידוע
+    const ctx = newCtx(o, s), useF = o.fmode === 'f';
+    wStep(ctx);
+    ts.forEach((t, i) => {
+      const X = Xs[i];
+      if (t === 'L') S(ctx, 'מתוך X_L = ωL', 'L', useF ? 'X_L / (2π·f)' : 'X_L / ω', `${fmt(X, 'Ω')} / ${useF ? '(' + freqSub(ctx, s.w) + ')' : fmt(s.w, 'rad/s')}`, s.L, 'H');
+      else S(ctx, 'מתוך X_C = 1/(ωC)', 'C', useF ? '1 / (2π·f·X_C)' : '1 / (ω·X_C)', `1 / (${freqSub(ctx, s.w)}·${fmt(X, 'Ω')})`, s.C, 'F');
+    });
+    const what = ts.length === 2 ? 'את השראות הסליל L ואת קיבול הקבל C' : ts[0] === 'L' ? 'את השראות הסליל L' : 'את קיבול הקבל C';
+    return part(`חשבו ${what}.`, ts.map(t => ANS(t, t === 'L' ? s.L : s.C, UNITS[t], t)), ctx.steps);
+  }
+  function inewPart(rng, o, s) {   // הזרם אחרי שינוי התדירות פי k
+    const k = rng.pick(VALUES.K), s2 = solveState(Object.assign({}, s, { w: s.w * k, Um: null }));
+    if (!valid(s2)) return null;
+    const ctx = newCtx(o, s), useF = o.fmode === 'f', kk = k < 1 ? 1 / k : k;
+    if (useF) S(ctx, 'התדירות החדשה', 'f′', k < 1 ? `f / ${kk}` : `${k}·f`, k < 1 ? `${fmt(s.f, 'Hz')} / ${kk}` : `${k}·${fmt(s.f, 'Hz')}`, s2.f, 'Hz');
+    else S(ctx, 'המהירות הזוויתית החדשה', 'ω′', k < 1 ? `ω / ${kk}` : `${k}·ω`, k < 1 ? `${fmt(s.w, 'rad/s')} / ${kk}` : `${k}·${fmt(s.w, 'rad/s')}`, s2.w, 'rad/s');
+    const r = zSteps(ctx, s2.w, '′'); iStep(ctx, r.Z, '′');
+    const what = useF ? 'תדירות המקור' : 'המהירות הזוויתית של המקור';
+    const change = k < 1 ? `מקטינים את ${what} פי ${kk}` : `מגדילים את ${what} פי ${k}`;
+    const p = part(`${change}. חשבו את הזרם I′ במעגל אחרי השינוי.`, [ANS('I′', s2.I, 'A', 'Inew')], ctx.steps);
+    p.k = k;
+    return p;
+  }
+  // רמות 2–4: שאלה ישירה עם סעיפים
+  function multiForward(rng, type, level) {
+    const o = randOpts(rng, level === 4);
+    const s = forwardState(rng, type, o);
+    if (!s) return null;
+    const d = dispFor(s); srcLines(d, s, o);
+    const parts = [];
+    if (level === 2) {
+      if (o.fmode === 'f' && rng.next() < 0.4) parts.push(wPart(o, s));
+      parts.push(xPart(o, s, type), zphiPart(o, s));
+    } else if (level === 3) {
+      parts.push(xPart(o, s, type), zPart(o, s), iPart(o, s));
+      if (rng.next() < 0.5) parts.push(uxPart(o, s, rng.pick(COMPS[type])));
+    } else {
+      parts.push(ufPart(o, s), xPart(o, s, type), zPart(o, s));
+      parts.push(rng.next() < 0.5 ? iPart(o, s) : uxPart(o, s, rng.pick(COMPS[type]), true));
+    }
+    return { s, d, o, parts, text: INTRO_AC, kind: 'fwd' };
+  }
+  // רמה 5: שאלות הפוכות בשלושה סגנונות, כמו בשאלות לדוגמה
+  function multiReverse(rng, type) {
+    const v = rng.pick(type === 'RLC' ? ['B', 'C'] : ['A', 'B', 'C']);
+    const ut = v !== 'B' && rng.next() < 0.35;
+    const o = randOpts(rng, ut), u = o.u, has = t => COMPS[type].includes(t);
+    if (v === 'A') {   // נתונים U, f, R ו-U_R: I → Z → X → L או C (RL/RC בלבד)
+      const t = type === 'RL' ? 'L' : 'C';
+      o.meters = rng.next() < 0.4;
+      const s = newState(rng, type, o); pickSource(rng, s, o);
+      s.R = rng.pick(VALUES.R);
+      const UR = rng.pick(VALUES.VX.filter(x => x < 0.97 * s.U));
+      if (!UR) return null;
+      const I = UR / s.R, Z = s.U / I, X = Math.sqrt(Z * Z - s.R * s.R);
+      realizeX(rng, s, X); solveState(s);
+      if (!valid(s)) return null;
+      const d = dispFor(s); srcLines(d, s, o);
+      comp(d, 'R').extras.push({ sym: `${u}_R`, value: UR, unit: 'V', meter: o.meters, q: 'UR' });
+      comp(d, t).value = null;
+      const c1 = newCtx(o, s); S(c1, 'חוק אוהם על הנגד', 'I', `${u}_R / R`, `${fmt(UR, 'V')} / ${fmt(s.R, 'Ω')}`, I, 'A');
+      const c2 = newCtx(o, s); uStep(c2); S(c2, 'חוק אוהם על כל המעגל', 'Z', `${u} / I`, `${fmt(s.U, 'V')} / ${fmt(I, 'A')}`, Z, 'Ω');
+      const c3 = newCtx(o, s); S(c3, 'מתוך Z² = R² + X²', 'X_' + t, '√(Z² − R²)', `√((${fmt(Z, 'Ω')})² − (${fmt(s.R, 'Ω')})²)`, X, 'Ω');
+      const parts = [part('חשבו את הזרם I במעגל.', [ANS('I', I, 'A', 'I')], c1.steps),
+        part('חשבו את עכבת המעגל Z.', [ANS('Z', Z, 'Ω', 'Z')], c2.steps),
+        part(t === 'L' ? 'חשבו את היגב הסליל X_L.' : 'חשבו את היגב הקבל X_C.', [ANS('X_' + t, X, 'Ω', 'X' + t)], c3.steps),
+        lcFromXPart(o, s, [t], [X])];
+      return { s, d, o, parts, text: INTRO_AC, kind: 'A' };
+    }
+    if (v === 'B') {   // מדי מתח על כל רכיב ומד זרם: R → X → L/C → U
+      o.meters = true;
+      const s = newState(rng, type, o);
+      const I = rng.pick(VALUES.I), V = { R: rng.pick(VALUES.VX), L: rng.pick(VALUES.VX), C: rng.pick(VALUES.VX) };
+      s.R = V.R / I;
+      if (has('L')) s.L = V.L / I / s.w;
+      if (has('C')) s.C = 1 / (s.w * V.C / I);
+      s.U = Math.hypot(V.R, (has('L') ? V.L : 0) - (has('C') ? V.C : 0));
+      solveState(s);
+      if (!valid(s)) return null;
+      const d = dispFor(s);
+      d.comps.forEach(c => { c.value = undefined; c.extras.push({ sym: `${u}_${c.t}`, value: V[c.t], unit: 'V', meter: true, q: 'U' + c.t }); });
+      d.current = { value: I, meter: true };
+      srcLines(d, s, o, 'ask');
+      const ts = reacts(type);
+      const c1 = newCtx(o, s); S(c1, 'חוק אוהם על הנגד', 'R', `${u}_R / I`, `${fmt(V.R, 'V')} / ${fmt(I, 'A')}`, s.R, 'Ω');
+      const c2 = newCtx(o, s); ts.forEach(t => S(c2, `חוק אוהם על ${COMP_NAME[t]}`, 'X_' + t, `${u}_${t} / I`, `${fmt(V[t], 'V')} / ${fmt(I, 'A')}`, t === 'L' ? s.XL : s.XC, 'Ω'));
+      const c4 = newCtx(o, s);
+      const f = type === 'RL' ? `√(${u}_R² + ${u}_L²)` : type === 'RC' ? `√(${u}_R² + ${u}_C²)` : `√(${u}_R² + (${u}_L − ${u}_C)²)`;
+      const sub = type === 'RL' ? `√((${fmt(V.R, 'V')})² + (${fmt(V.L, 'V')})²)` : type === 'RC' ? `√((${fmt(V.R, 'V')})² + (${fmt(V.C, 'V')})²)`
+        : `√((${fmt(V.R, 'V')})² + (${fmt(V.L, 'V')} − ${fmt(V.C, 'V')})²)`;
+      S(c4, 'משולש המתחים: המתחים על הרכיבים לא מתחברים כמו מספרים רגילים', u, f, sub, s.U, 'V');
+      const what = ts.length === 2 ? 'את היגב הסליל X_L ואת היגב הקבל X_C' : ts[0] === 'L' ? 'את היגב הסליל X_L' : 'את היגב הקבל X_C';
+      const parts = [part('חשבו את התנגדות הנגד R.', [ANS('R', s.R, 'Ω', 'R')], c1.steps),
+        part(`חשבו ${what}.`, ts.map(t => ANS('X_' + t, t === 'L' ? s.XL : s.XC, 'Ω', 'X' + t)), c2.steps),
+        lcFromXPart(o, s, ts, ts.map(t => (t === 'L' ? s.XL : s.XC))),
+        part(`חשבו את מתח המקור ${u}.`, [ANS(u, s.U, 'V', 'U')], c4.steps)];
+      return { s, d, o, parts, text: INTRO_AC + ' קריאות מדי המתח ומד הזרם מוצגות באיור.', kind: 'B' };
+    }
+    // C: היגב נתון במקום L או C (כמו בדוגמה): L או C → Z ו-φ → I → לפעמים הזרם אחרי שינוי התדירות
+    const t = rng.pick(reacts(type));
+    const s = newState(rng, type, o);
+    s.R = rng.pick(VALUES.R);
+    const X = rng.pick(VALUES.X);
+    if (t === 'L') { s.L = X / s.w; if (type === 'RLC') s.C = rng.pick(VALUES.C); }
+    else { s.C = 1 / (s.w * X); if (type === 'RLC') s.L = rng.pick(VALUES.L); }
+    pickSource(rng, s, o); solveState(s);
+    if (!valid(s)) return null;
+    const d = dispFor(s); srcLines(d, s, o);
+    Object.assign(comp(d, t), { name: 'X_' + t, value: X, unit: 'Ω', q: 'X' + t });
+    const other = type === 'RLC' ? (t === 'L' ? 'C' : 'L') : null;
+    const parts = [lcFromXPart(o, s, [t], [X]), zphiPart(o, s, other ? ctx => reactStep(ctx, other, s.w) : null), iPart(o, s)];
+    if (o.src === 'U' && rng.next() < 0.5) { const pn = inewPart(rng, o, s); if (pn) parts.push(pn); }
+    return { s, d, o, parts, text: INTRO_AC, kind: 'C', k: (parts[3] || {}).k };
+  }
+  function makeMulti(rng, seed, level, type) {
+    let r = null, tries = 0;
+    for (let t = 0; t < MAX_TRIES && !r; t++) { tries++; r = level <= 4 ? multiForward(rng, type, level) : multiReverse(rng, type); }
+    if (!r) throw new Error('no exercise');
+    let vm = 0;
+    r.d.comps.forEach(c => c.extras.forEach(e => { if (e.meter) e.meterName = 'V_' + (++vm); }));
+    return {
+      version: VERSION, seed, level, ctype: type, kind: r.kind, format: r.kind, tries,
+      u: r.o.u, src: r.o.src, fmode: r.o.fmode, meters: r.o.meters, k: r.k,
+      state: r.s, disp: r.d, text: r.text, parts: r.parts,
+    };
+  }
+
+  // opts: { level, types:['RL','RC','RLC'], prevKind?, seed?, kind? (שאלה אחת, לבדיקות), type? }
   function makeExercise(opts) {
     const seed = opts.seed != null ? opts.seed >>> 0 : randomSeed();
     const rng = makeRng(seed);
     const level = opts.level, type = opts.type || rng.pick(opts.types);
+    // רמות 2–5: תרגיל עם סעיפים. רמה 1 (או kind מפורש): שאלה אחת
+    if (level >= 2 && !opts.kind) return makeMulti(rng, seed, level, type);
     let k;
     if (opts.kind) k = KINDS.find(x => x.kind === opts.kind);
     else {
-      // רמה נוכחית ב-60%; אחרת רמה נמוכה יותר (כל רמה בסיכוי שווה), ובתוכה סוג שאלה
-      const lv = level === 1 || rng.next() < CURRENT_LEVEL_SHARE ? level : rng.int(1, level - 1);
-      let pool = KINDS.filter(x => x.lv === lv && fits(x, type));
+      // בלי ערבוב: רק סוגי השאלות של הרמה הנוכחית
+      let pool = KINDS.filter(x => x.lv === level && fits(x, type));
       if (opts.prevKind && pool.length > 1) pool = pool.filter(x => x.kind !== opts.prevKind);
       k = rng.pick(pool);
     }
@@ -462,9 +639,11 @@
     return {
       version: VERSION, seed, level, ctype: type, kind: k.kind, requestedKind, fallback: k.kind !== requestedKind, tries,
       u: o.u, src: o.src, fmode: o.fmode, meters: o.meters, k: r.k,
-      state: r.s, disp: r.d, answers: r.answers, text: r.text, steps: ctx.steps,
+      state: r.s, disp: r.d, answers: r.answers, text: r.text, steps: ctx.steps, format: 'single',
+      parts: [{ answers: r.answers.map(a => Object.assign({ q: Q1[k.kind] }, a)), steps: ctx.steps }],
     };
   }
+  const Q1 = { XL: 'XL', XC: 'XC', w_from_f: 'w', f_from_w: 'f', T: 'T' };
   function givensList(ex) {
     const out = [], d = ex.disp;
     d.src.forEach(x => {
@@ -612,7 +791,7 @@
   syncSettings();
 
   // ---------- תרגיל ----------
-  const stepsHtml = ex => '<ol class="steps">' + ex.steps.map(step => {
+  const stepsHtml = (ex, pi) => '<ol class="steps">' + ex.parts[pi].steps.map(step => {
     const parts = [step.lhs, step.formula, step.subst].filter(Boolean).map(p => symHtml(esc(p)));
     return `<li><div class="sn">${esc(step.note)}</div><div class="eq" dir="ltr">${parts.join(' = ')} = ${esc(E.fmt(step.value, step.unit))}</div></li>`;
   }).join('') + '</ol>';
@@ -623,9 +802,9 @@
     ctypeHtml: ex => `מעגל <bdi dir="ltr">${esc(E.TYPE_NAMES[ex.ctype])}</bdi> טורי`,
     render: ex => E.Draw.render(ex),
     givens: ex => E.givensList(ex),
-    parts: ex => [{ answers: ex.answers.map(a => (a.unit === '°'
+    parts: ex => ex.parts.map(p => ({ text: p.text, answers: p.answers.map(a => (a.unit === '°'
       ? { type: 'angle', sym: a.sym, value: a.value, unit: '°' }
-      : { type: 'num', sym: a.sym, value: a.value, unit: a.unit, prefix: true })) }],
+      : { type: 'num', sym: a.sym, value: a.value, unit: a.unit, prefix: true })) })),
     solution: { title: 'פתרון שלב אחר שלב', html: stepsHtml, onCorrect: true },
     failSuffix: 'הנה הפתרון המלא:',
   });

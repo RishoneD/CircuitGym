@@ -67,3 +67,8 @@ bdi[dir=ltr], [dir=ltr] { unicode-bidi: isolate; }
 .parts .ok { color: var(--ok); font-weight: 600; }
 .parts .bad { color: var(--bad); font-weight: 600; }
 .summary li { margin-bottom: 4px; }
+
+.selfbox { margin: 12px 0; }
+.selfbox #selfBody { margin-top: 10px; overflow-x: auto; }
+.selfbox svg { width: 100%; height: auto; max-width: 640px; display: block; }
+.prompt { font-weight: 600; color: var(--unk); }

@@ -83,58 +83,56 @@
   }
   const phiOf = (P, p) => (p.node ? (p.node === 'T' ? P.get('TL') : 0) : P.get(p.item)[p.end]);
   const branchOf = (br, ref) => ['L', 'M', 'R'].find(b => br[b].some(x => x.ref === ref));
-  function verify(ex) {
+  // זרמי הענפים ומתח הצמתים מתוך מה שמוצג: שיטת זרמי חוגים (קרמר), או בשאלה הפוכה מתוך מדי הזרם וחוק הצמתים
+  function solveShown(ex) {
     const br = shownCircuit(ex);
-    const fwd = !ex.kind.endsWith('_rev');
-    let I;
-    if (fwd) {
+    const complete = b => br[b].every(x => x.k === 'A' || typeof x.v === 'number');
+    const walk = (I, b, skip) => br[b].reduce((phi, x) => x === skip ? phi : x.k === 'R' ? phi - I[b] * x.v : x.k === 'E' ? phi + x.pol * x.v : phi, 0);
+    let I, V;
+    if (ex.format !== 'rev') {
       I = meshSolve(br);
       const P = potentials(br, I);
       ok(Math.abs(P.get('TL') - P.get('TM')) < 1e-9 && Math.abs(P.get('TL') - P.get('TR')) < 1e-9, `KVL inconsistent (seed ${ex.seed})`);
-      const res = idx => { const b = ['L', 'M', 'R'].find(b => br[b].some(x => x.k === 'R' && x.idx === idx)); return { b, x: br[b].find(x => x.k === 'R' && x.idx === idx) }; };
-      const symIdx = s => +s.replace(/\D/g, '');
-      switch (ex.kind) {
-        case 'I_R': { const r = res(symIdx(ex.answers[0].sym)); return [Math.abs(I[r.b])]; }
-        case 'P_R': { const r = res(symIdx(ex.answers[0].sym)); return [I[r.b] ** 2 * r.x.v]; }
-        case 'I_R_dir': {
-          const r = res(symIdx(ex.answers[0].sym)), aIn = ex.marks.A.end === 'in';
-          return [Math.abs(I[r.b]), (I[r.b] > 0) === aIn ? 'AB' : 'BA'];
-        }
-        case 'I12': return ex.answers.map(a => Math.abs(I[branchOf(br, ex.circuit.bats.find(e => e.idx === symIdx(a.sym)))]));
-        case 'V_AB': return [Math.abs(phiOf(P, ex.marks.A) - phiOf(P, ex.marks.B))];
-      }
+      return { br, I, V: P.get('TL'), P, walk, complete };
     }
-    // הפוכות: זרמי הענפים מתוך מדי הזרם וחוק הצמתים
     I = {};
     for (const b of ['L', 'M', 'R']) { const m = br[b].find(x => x.k === 'A'); if (m) I[b] = m.I; }
     const missing = ['L', 'M', 'R'].filter(b => I[b] === undefined);
     ok(missing.length === 1, `expected exactly one branch without a meter (seed ${ex.seed})`);
     I[missing[0]] = -['L', 'M', 'R'].filter(b => b !== missing[0]).reduce((s, b) => s + I[b], 0);
-    // ענף שכל הנתונים בו ידועים נותן את המתח בין הצמתים
-    const complete = b => br[b].every(x => x.k === 'A' || typeof x.v === 'number');
     const kb = ['L', 'M', 'R'].find(complete);
     ok(!!kb, `no fully known branch (seed ${ex.seed})`);
-    const walk = (b, skip) => br[b].reduce((phi, x) => x === skip ? phi : x.k === 'R' ? phi - I[b] * x.v : x.k === 'E' ? phi + x.pol * x.v : phi, 0);
-    const V = walk(kb);
-    ['L', 'M', 'R'].filter(complete).forEach(b => ok(Math.abs(walk(b) - V) < 1e-6 * Math.max(1, Math.abs(V)), `known branches disagree (seed ${ex.seed})`));
-    if (ex.kind === 'VAB_rev') return [Math.abs(V)];
-    const tgt = ex.answers[0].sym, idx = +tgt.replace(/\D/g, ''), k = tgt[0];
-    const b = ['L', 'M', 'R'].find(b => br[b].some(x => x.k === k && x.idx === idx));
-    const x = br[b].find(x => x.k === k && x.idx === idx);
-    ok(br[b].every(y => y === x || y.k === 'A' || typeof y.v === 'number'), `target branch has another unknown (seed ${ex.seed})`);
-    const rest = walk(b, x);   // פוטנציאל הקצה בלי הנעלם
-    return [k === 'R' ? (rest - V) / I[b] : (V - rest) / x.pol];
+    V = walk(I, kb);
+    ['L', 'M', 'R'].filter(complete).forEach(b => ok(Math.abs(walk(I, b) - V) < 1e-6 * Math.max(1, Math.abs(V)), `known branches disagree (seed ${ex.seed})`));
+    return { br, I, V, walk, complete };
+  }
+  function verifyPart(ex, S, p) {
+    const { br, I } = S, bOf = ref => branchOf(br, ref), node = x => br[bOf(x)].find(y => y.ref === x);
+    switch (p.kind) {
+      case 'I_R': case 'IR': case 'IRrev': return [Math.abs(I[bOf(p.ref)])];
+      case 'P_R': case 'PR': return [I[bOf(p.ref)] ** 2 * node(p.ref).v];
+      case 'IRdir': return [Math.abs(I[bOf(p.ref)]), (I[bOf(p.ref)] > 0) === (ex.marks[p.names[0]].end === 'in') ? 'XY' : 'YX'];
+      case 'I12': return p.refs.map(e => Math.abs(I[bOf(e)]));
+      case 'VAB': return [Math.abs(phiOf(S.P, ex.marks[p.names[0]]) - phiOf(S.P, ex.marks[p.names[1]]))];
+      case 'VABrev': return [Math.abs(S.V)];
+      case 'Rrev': case 'Erev': {
+        const b = bOf(p.ref), x = node(p.ref);
+        ok(br[b].every(y => y === x || y.k === 'A' || typeof y.v === 'number'), `branch of ${p.kind} has another unknown (seed ${ex.seed})`);
+        const rest = S.walk(I, b, x);
+        return [p.kind === 'Rrev' ? (rest - S.V) / I[b] : (S.V - rest) / x.pol];
+      }
+    }
+    throw new Error('unknown part ' + p.kind);
   }
   function drawChecks(ex, st) {
-    const r = E.Draw.render(ex), tag = `(seed ${ex.seed}, ${ex.kind})`, c = ex.circuit;
+    const r = E.Draw.render(ex), tag = `(seed ${ex.seed}, L${ex.level} ${ex.format})`, c = ex.circuit;
     ok(!/NaN|undefined|Infinity|null/.test(r.svg), `bad svg ${tag}`);
     ok((r.svg.match(/<polyline/g) || []).length === c.res.length, `resistor count ${tag}`);
     ok((r.svg.match(/ckt-plate ckt-short/g) || []).length === c.bats.length, `battery count ${tag}`);
     ok((r.svg.match(/class="ckt-meter"/g) || []).length === ex.meters.length, `meter count ${tag}`);
-    ok((r.svg.match(/font-weight="bold">[AB]</g) || []).length === (ex.marks ? 2 : 0), `A/B marks ${tag}`);
+    ok((r.svg.match(/font-weight="bold">[A-D]</g) || []).length === Object.keys(ex.marks).length, `point marks ${tag}`);
     ok((r.svg.match(/class="ckt-q"/g) || []).length === [...ex.hidden.values()].filter(v => v === 'ask').length, `question marks ${tag}`);
     for (const [x, P] of r.placed) ok(P.cx > 0 && P.cx < r.width && P.cy > 0 && P.cy < r.height, `item outside ${tag}`);
-    // פריטים באותו מקטע לא חופפים
     const bySlot = {};
     for (const [x, P] of r.placed) (bySlot[P.slot] = bySlot[P.slot] || []).push(P);
     for (const list of Object.values(bySlot)) for (let i = 1; i < list.length; i++) {
@@ -149,35 +147,33 @@
   ok(E.levelChoices(2, true, 1, 1).map(o => o.level).join() === '3,2', 'level choices');
   {
     const a = E.makeExercise({ level: 5, power: true, prefixes: true, seed: 77 }), b = E.makeExercise({ level: 5, power: true, prefixes: true, seed: 77 });
-    ok(JSON.stringify(a.answers) === JSON.stringify(b.answers) && E.Draw.render(a).svg === E.Draw.render(b).svg, 'deterministic');
+    ok(JSON.stringify(a.parts.map(p => p.answers)) === JSON.stringify(b.parts.map(p => p.answers)) && E.Draw.render(a).svg === E.Draw.render(b).svg, 'deterministic');
   }
 
   // ---------- גרסה וקישורים בכל האתר ----------
   {
-    const pages = { landing: '../index.html', ohm: '../ohm/index.html', mesh: 'index.html', ac: '../ac/index.html' }, vers = {};
+    const pages = { landing: '../index.html', ohm: '../ohm/index.html', mesh: 'index.html', ac: '../ac/index.html', filters: '../filters/index.html' }, vers = {};
     for (const [name, path] of Object.entries(pages)) {
       const url = new URL(path, location.href), src = await (await fetch(url, { cache: 'no-store' })).text();
-      const m = /const VERSION = '(v\d+\.\d+)'/.exec(src);
-      vers[name] = m && m[1];
+      vers[name] = (/const VERSION = '(v\d+\.\d+)'/.exec(src) || [])[1];
       for (const a of new DOMParser().parseFromString(src, 'text/html').querySelectorAll('a[href]')) {
         const href = a.getAttribute('href');
         ok(!/^(\/|[a-z]+:)/i.test(href), `non-relative link "${href}" on ${name}`);
         const r = await fetch(new URL(href, url), { cache: 'no-store' });
         ok(r.ok, `broken link "${href}" on ${name}`);
-        log(`link ${name} -> ${href}: ${r.status}`);
       }
     }
     log('versions: ' + JSON.stringify(vers));
     ok(new Set(Object.values(vers)).size === 1 && vers.mesh === E.VERSION, 'site versions match');
     const land = await (await fetch('../index.html', { cache: 'no-store' })).text();
     const order = [...land.matchAll(/class="card" href="([^"]+)"/g)].map(m => m[1]).join(' ');
-    ok(order === 'ohm/index.html mesh/index.html ac/index.html', 'landing card order: ' + order);
+    ok(order === 'ohm/index.html mesh/index.html ac/index.html filters/index.html', 'landing card order: ' + order);
   }
 
   // ---------- ריצה המונית ----------
   const N = +(new URLSearchParams(location.search).get('n') || 40);
-  const kindStats = {}, byLevel = {}, dst = { maxW: 0 };
-  let total = 0, maxMs = 0;
+  const fmtStats = {}, partStats = {}, dst = { maxW: 0 };
+  let total = 0, maxMs = 0, bats = 0, roundBats = 0;
   const t0 = performance.now();
   for (const power of [false, true]) for (const prefixes of [false, true]) for (let level = 1; level <= 5; level++) for (let i = 0; i < N; i++) {
     const seed = (total * 2654435761 + 5) >>> 0;
@@ -186,38 +182,45 @@
     try { ex = E.makeExercise({ level, power, prefixes, seed }); } catch (e) { ok(false, `makeExercise threw ${e.message} (seed ${seed})`); total++; continue; }
     maxMs = Math.max(maxMs, performance.now() - t1);
     total++;
-    const ks = kindStats[ex.requestedKind] || (kindStats[ex.requestedKind] = { n: 0, tries: 0, maxTries: 0, fallback: 0 });
-    ks.n++; ks.tries += ex.tries; ks.maxTries = Math.max(ks.maxTries, ex.tries); if (ex.fallback) ks.fallback++;
-    ok(ex.clean, `exercise without clean values (seed ${seed})`);
-    const kl = E.KINDS.find(k => k.kind === ex.kind).lv;
-    (byLevel[level] = byLevel[level] || {})[kl] = (byLevel[level][kl] || 0) + 1;
-    ok(kl <= level, 'kind above level');
-    ok(power || ex.kind !== 'P_R', 'power off');
-    const c = ex.circuit, Lc = E.LEVELS[level];
-    // רמה קובעת את מבנה המעגל
-    ok(Lc.nE.includes(c.bats.length) && Lc.nR.includes(c.res.length), `circuit size L${level}: E${c.bats.length} R${c.res.length} (seed ${seed})`);
-    ok(c.res.every((r, i) => r.idx === i + 1) && c.bats.every((e, i) => e.idx === i + 1), 'numbering');
-    let v;
-    try { v = verify(ex); } catch (e) { ok(false, `verify threw ${e.message} (seed ${seed}, ${ex.kind})`); continue; }
-    ex.answers.forEach((a, j) => {
-      if (a.dir) { ok(v[j] === a.value, `direction mismatch (seed ${seed})`); return; }
-      ok(rel(v[j], a.value) < 1e-6, `answer mismatch ${ex.kind} ${a.sym}: engine ${a.value} vs verifier ${v[j]} (seed ${seed})`);
-      ok(U.isClean(a.value), `answer not clean ${a.value} (seed ${seed})`);
-      const shown = U.formatAnswer(a.value, a.unit, prefixes);
-      ok(U.check(parseShown(shown), a.value), `displayed answer not accepted ${shown} (seed ${seed})`);
+    const tag = `(seed ${seed}, L${level} ${ex.format})`, c = ex.circuit, Lc = E.LEVELS[level];
+    const fs = fmtStats[`L${level} ${ex.format}`] || (fmtStats[`L${level} ${ex.format}`] = { n: 0, tries: 0, maxTries: 0 });
+    fs.n++; fs.tries += ex.tries; fs.maxTries = Math.max(fs.maxTries, ex.tries);
+    // מבנה לפי רמה
+    ok(E.LEVEL_FORMATS[level].includes(ex.format), 'format for level ' + tag);
+    ok(Lc.nE.includes(c.bats.length) && Lc.nR.includes(c.res.length), `circuit size E${c.bats.length} R${c.res.length} ` + tag);
+    ok(c.res.every((r, i) => r.idx === i + 1) && c.bats.every((e, i) => e.idx === i + 1), 'numbering ' + tag);
+    const n = ex.parts.length, kinds = ex.parts.map(p => p.kind);
+    partStats[kinds.join(',')] = (partStats[kinds.join(',')] || 0) + 1;
+    if (level === 1) ok(n === 1 && ['I_R', 'P_R'].includes(kinds[0]), 'L1 single question ' + tag);
+    else if (level === 2) ok(n >= 2 && n <= 3 && !kinds.includes('VAB'), 'L2: 2-3 parts ' + tag);
+    else ok(n >= 3 && n <= 4, 'L3+: 3-4 parts ' + tag);
+    ok(ex.format === 'rev' ? kinds.every(k => /rev$|^PR$/.test(k)) && kinds[0] === 'VABrev' : !kinds.some(k => /rev$/.test(k)), 'reverse parts only in reverse format ' + tag);
+    ok(power || !kinds.some(k => /^P/.test(k)), 'power off ' + tag);
+    // הסוללות: עד 3 ספרות משמעותיות, ובטווח סביר
+    c.bats.forEach(e => { bats++; if (Math.abs(e.E * 2 - Math.round(e.E * 2)) < 1e-9) roundBats++; ok(U.isClean(e.E) && e.E >= 1 && e.E <= 60, `battery ${e.E} ` + tag); });
+    let S;
+    try { S = solveShown(ex); } catch (e) { ok(false, `solve threw ${e.message} ` + tag); continue; }
+    ex.parts.forEach(p => {
+      let v;
+      try { v = verifyPart(ex, S, p); } catch (e) { ok(false, `verify threw ${e.message} ` + tag); return; }
+      p.answers.forEach((a, j) => {
+        if (a.dir) { ok(v[j] === a.value, `direction mismatch ${p.kind} ` + tag); return; }
+        ok(rel(v[j], a.value) < 1e-6, `answer mismatch ${p.kind} ${a.sym}: engine ${a.value} vs verifier ${v[j]} ` + tag);
+        ok(U.isClean(a.value), `answer not clean ${a.sym} = ${a.value} ` + tag);
+        const shown = U.formatAnswer(a.value, a.unit, prefixes);
+        ok(U.check(parseShown(shown), a.value), `displayed answer not accepted ${shown} ` + tag);
+      });
     });
     for (const x of E.givensList(ex)) ok(rel(parseShown(x.text), x.q[0] === 'A' ? ex.meters[+x.q.slice(1) - 1].reading : x.q[0] === 'R'
-      ? c.res[+x.q.slice(1) - 1].R : c.bats[+x.q.slice(1) - 1].E) < 1e-9, `displayed given rounded ${x.sym} (seed ${seed})`);
+      ? c.res[+x.q.slice(1) - 1].R : c.bats[+x.q.slice(1) - 1].E) < 1e-9, `displayed given rounded ${x.sym} ` + tag);
     drawChecks(ex, dst);
   }
   const dt = performance.now() - t0;
   log(`exercises: ${total}   time: ${(dt / 1000).toFixed(1)} s   slowest: ${maxMs.toFixed(0)} ms   max width ${dst.maxW}`);
-  log('level -> share by kind level: ' + JSON.stringify(byLevel));
-  log('\nkind        n     avgTries  maxTries  fallback');
-  Object.keys(kindStats).sort().forEach(k => {
-    const s = kindStats[k];
-    log(`${k.padEnd(10)} ${String(s.n).padStart(5)}  ${(s.tries / s.n).toFixed(1).padStart(8)}  ${String(s.maxTries).padStart(8)}  ${String(s.fallback).padStart(8)}`);
-  });
+  log(`batteries: ${bats}, round (multiple of 0.5 V): ${(100 * roundBats / bats).toFixed(0)}%`);
+  log('\nformat          n   avgTries  maxTries');
+  Object.keys(fmtStats).sort().forEach(k => { const s = fmtStats[k]; log(`${k.padEnd(12)} ${String(s.n).padStart(5)}  ${(s.tries / s.n).toFixed(1).padStart(8)}  ${String(s.maxTries).padStart(8)}`); });
+  log('\nparts: ' + JSON.stringify(partStats));
   if (failures.length) log('\nFAILURES (first 40):\n' + failures.join('\n'));
   document.getElementById('log').textContent = lines.join('\n');
   document.getElementById('summary').innerHTML =
@@ -225,9 +228,9 @@
   window.TEST_RESULT = { pass, fail, total, failures, text: lines.join('\n') };
 
   const gal = [];
-  E.KINDS.forEach((k, i) => [k.lv, 5].forEach((lv, j) => {
-    const ex = E.makeExercise({ level: Math.max(lv, k.lv), power: true, prefixes: (i + j) % 2 === 0, seed: 300 + i * 7 + j, kind: k.kind });
-    gal.push(`<figure><figcaption>L${ex.level} ${ex.kind} seed ${ex.seed} | ${ex.text}</figcaption>${E.Draw.render(ex).svg}</figure>`);
+  [[1, 'single'], [2, 'fwd'], [3, 'fwd'], [4, 'rev'], [5, 'fwd'], [5, 'rev']].forEach(([lv, format], i) => [0, 1].forEach(j => {
+    const ex = E.makeExercise({ level: lv, format, power: true, prefixes: (i + j) % 2 === 0, seed: 300 + i * 7 + j });
+    gal.push(`<figure><figcaption>L${ex.level} ${ex.format} seed ${ex.seed} | ${ex.text} | ${ex.parts.map(p => p.text).join(' / ')}</figcaption>${E.Draw.render(ex).svg}</figure>`);
   }));
   document.getElementById('gallery').innerHTML = gal.join('');
 })().catch(e => { document.getElementById('log').textContent = 'ERROR: ' + e.stack; window.TEST_RESULT = { error: String(e.stack) }; });

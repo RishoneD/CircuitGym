@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>תרגול מסננים (LP, HP)</title>
+<link rel="stylesheet" href="../common/style.css">
+</head>
+<body>
+<header>
+  <h1>תרגול מסננים (LP, HP)</h1>
+  <span class="ver" dir="ltr" id="ver"></span>
+  <a class="home" href="../index.html">→ לדף הראשי</a>
+</header>
+
+<main>
+  <section id="setup" class="card">
+    <h2>הגדרות תרגול</h2>
+    <fieldset>
+      <legend>סוג המסנן (אפשר לבחור כמה)</legend>
+      <label class="opt"><input type="checkbox" id="tRC-LP" checked> <bdi dir="ltr">RC-LPF</bdi></label>
+      <label class="opt"><input type="checkbox" id="tRC-HP" checked> <bdi dir="ltr">RC-HPF</bdi></label>
+      <label class="opt"><input type="checkbox" id="tRL-LP" checked> <bdi dir="ltr">RL-LPF</bdi></label>
+      <label class="opt"><input type="checkbox" id="tRL-HP" checked> <bdi dir="ltr">RL-HPF</bdi></label>
+    </fieldset>
+    <label class="row">רמת קושי התחלתית:
+      <select id="level">
+        <option value="1">1</option>
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="4">4</option>
+      </select>
+    </label>
+    <p id="setNote" class="note"></p>
+    <button id="start" class="primary">התחלה</button>
+  </section>
+
+  <section id="play" class="card" hidden></section>
+</main>
+
+<footer>נוצר על ידי ראשון דיבקר בעזרת Claude · <span dir="ltr" id="ver2"></span></footer>
+
+<script src="../common/core.js"></script>
+<!-- ======================= מנוע (ללא DOM) ======================= -->
+<script id="engine">
+(function (global) {
+  'use strict';
+
+  const VERSION = 'v1.8';
+  const MAX_LEVEL = 4;
+  const MAX_ATTEMPTS = 3;
+  const TOL = 0.01;               // סטייה יחסית מותרת (1%)
+  const MIN_VO = 0.5;             // לא שואלים על מתח מוצא קטן מזה (1% מערך זעיר אינו סביר)
+  const { makeRng, randomSeed } = global.Core;
+  const Units = global.Core.makeUnits({ prefixes: ['M', 'k', '', 'm', 'µ', 'n'], tol: TOL });
+  const { numStr, roundSig } = Units;
+
+  // סוגי המסנן: RC-LP (R בטור, C במקביל), RC-HP (C בטור, R במקביל), RL-LP (L בטור, R במקביל), RL-HP (R בטור, L במקביל)
+  const TYPES = {
+    'RC-LP': { fam: 'RC', ft: 'LP', series: 'R', shunt: 'C' }, 'RC-HP': { fam: 'RC', ft: 'HP', series: 'C', shunt: 'R' },
+    'RL-LP': { fam: 'RL', ft: 'LP', series: 'L', shunt: 'R' }, 'RL-HP': { fam: 'RL', ft: 'HP', series: 'R', shunt: 'L' },
+  };
+  const FT_NAMES = { LP: 'מעביר נמוכים (LP)', HP: 'מעביר גבוהים (HP)' };
+  // רכיבים שנותנים קבוע זמן עגול (במילי-שניות)
+  const TAUS = [0.5, 1, 2, 4, 5];
+  const R_RC = [1e3, 2e3, 4e3, 5e3, 1e4, 2e4, 5e4], C_RC = [0.05e-6, 0.1e-6, 0.2e-6, 0.5e-6, 1e-6, 2e-6];
+  const L_RL = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1], R_RL = [10, 20, 50, 100, 200, 500, 1000];
+  const LEVELS_V = [-10, -8, -6, -5, -4, -3, -2, 0, 2, 3, 4, 5, 6, 8, 10];
+  const snap = x => Math.round(x * 1e6) / 1e6;
+  function compPairs(fam) {
+    const out = [];
+    if (fam === 'RC') R_RC.forEach(R => C_RC.forEach(C => { const tau = snap(R * C * 1000); if (TAUS.includes(tau)) out.push({ R, C, tau }); }));
+    else L_RL.forEach(L => R_RL.forEach(R => { const tau = snap(L / R * 1000); if (TAUS.includes(tau)) out.push({ R, L, tau }); }));
+    return out;
+  }
+  const PAIRS = { RC: compPairs('RC'), RL: compPairs('RL') };
+
+  // ---------------- Waveform & response ----------------
+  // wave: ts = זמני המעברים (ms), v[0] = המתח לפני המעבר הראשון (מצב יציב), v[k+1] = אחרי מעבר k
+  function makeWave(rng, n) {
+    const ts = [rng.pick([0, 1, 1, 2])];
+    for (let i = 1; i < n; i++) ts.push(ts[i - 1] + rng.int(1, 3));
+    const v = [rng.next() < 0.5 ? 0 : rng.pick(LEVELS_V.filter(x => x !== 0))];
+    for (let k = 1; k <= n; k++) v.push(rng.pick(LEVELS_V.filter(x => Math.abs(x - v[k - 1]) >= 2)));
+    return { ts, v };
+  }
+  // תגובת מסנן מסדר ראשון: LP רציף ומתקרב למבוא; HP קופץ בגודל הקפיצה של המבוא ודועך ל-0.
+  // mode (למסיחים בלבד): 'jumpLevel' = HP שקופץ לרמת המבוא במקום בגודל הקפיצה
+  function response(wave, ft, tau, mode) {
+    const { ts, v } = wave, n = ts.length, minus = [], plus = [], asym = [];
+    const pre = ft === 'LP' ? v[0] : 0;
+    let cur = pre;
+    for (let k = 0; k < n; k++) {
+      minus.push(cur);
+      const p = ft === 'LP' ? cur : mode === 'jumpLevel' ? v[k + 1] : cur + (v[k + 1] - v[k]);
+      plus.push(p);
+      asym.push(ft === 'LP' ? v[k + 1] : 0);
+      if (k < n - 1) cur = asym[k] + (p - asym[k]) * Math.exp(-(ts[k + 1] - ts[k]) / tau);
+    }
+    // side: -1 = רגע לפני מעבר, +1 (או בלי) = הערך בזמן t / רגע אחרי
+    const at = (t, side) => {
+      let k = -1;
+      for (let i = 0; i < n; i++) if (t > ts[i] - 1e-12) k = i;
+      if (k < 0) return pre;
+      if (side === -1 && Math.abs(t - ts[k]) < 1e-12) return minus[k];
+      return asym[k] + (plus[k] - asym[k]) * Math.exp(-(t - ts[k]) / tau);
+    };
+    return { pre, minus, plus, asym, at, tau, ft };
+  }
+  const inputAt = (wave, t) => { let x = wave.v[0]; wave.ts.forEach((tk, k) => { if (t >= tk) x = wave.v[k + 1]; }); return x; };
+  function timeRange(wave, tau) {
+    const ts = wave.ts, last = ts[ts.length - 1];
+    return { t0: Math.min(0, ts[0] - 1), t1: last + Math.max(2, Math.min(5, Math.ceil(1.5 * tau))) };
+  }
+  // דגימה לציור: נקודות לאורך הזמן, כולל קפיצות אנכיות במעברים
+  function samples(fn, wave, range, isInput) {
+    const pts = [], ts = wave.ts, edges = [range.t0, ...ts, range.t1];
+    for (let s = 0; s < edges.length - 1; s++) {
+      const a = edges[s], b = edges[s + 1], steps = isInput ? 1 : 40;
+      for (let i = 0; i <= steps; i++) {
+        const t = a + (b - a) * i / steps;
+        const side = i === steps && s < edges.length - 2 ? -1 : 1;
+        pts.push([t, isInput ? (side === -1 ? inputAt(wave, t - 1e-9) : inputAt(wave, t)) : fn(t, side)]);
+      }
+    }
+    return pts;
+  }
+  function maxDiff(f, g, range) {
+    let d = 0;
+    for (let i = 0; i <= 300; i++) { const t = range.t0 + (range.t1 - range.t0) * i / 300; d = Math.max(d, Math.abs(f(t) - g(t))); }
+    return d;
+  }
+
+  // ---------------- Exercise ----------------
+  const fmtR = R => Units.format(R, 'Ω', true, 3);
+  const fmtC = C => numStr(roundSig(C * 1e6, 3)) + ' µF';   // כמו בשאלות לדוגמה: תמיד ב-µF
+  const fmtL = L => Units.format(L, 'H', true, 3);
+  const fmtV = x => numStr(Math.round(x * 100) / 100) + ' V';
+  const fmtT = x => numStr(Math.round(x * 1000) / 1000) + ' ms';
+
+  function intro(ex) {
+    const c = ex.circ, t1 = ex.wave.ts[0], v0 = ex.wave.v[0];
+    const what = ex.lv === 4 ? `באיור נתון מסנן ${c.fam}.` : `באיור נתון מסנן ${c.fam} ${FT_NAMES[c.ft]}.`;
+    const init = v0 === 0
+      ? `לפני t = ${t1} ms מתח המבוא היה 0 ${c.fam === 'RC' ? 'והקבל היה פרוק' : 'ולא זרם זרם בסליל'}.`
+      : `לפני t = ${t1} ms מתח המבוא היה ${v0} V במשך זמן רב, והמעגל היה במצב יציב.`;
+    return `${what} למבוא המסנן מספקים את האות V_i המתואר בגרף. ${init}`;
+  }
+  // סעיפי "מתח המוצא בזמן t": זמנים שלמים בתוך קטעים, או רגע לפני / רגע אחרי מעבר
+  function voQuestions(rng, ex, count) {
+    const { ts } = ex.wave, r = ex.resp, rg = ex.range, cand = [];
+    for (let t = Math.ceil(ts[0]) + 1; t <= rg.t1; t++) if (!ts.includes(t)) cand.push({ t, side: 0 });
+    ts.forEach((t, k) => { cand.push({ t, side: 1 }); if (k > 0) cand.push({ t, side: -1 }); });
+    const good = rng.shuffle(cand).filter(q => Math.abs(r.at(q.t, q.side === -1 ? -1 : 1)) >= MIN_VO);
+    // לפעמים רגע לפני/אחרי ולפעמים זמן רגיל
+    const plain = good.filter(q => q.side === 0), edge = good.filter(q => q.side !== 0), out = [];
+    for (let i = 0; i < count; i++) {
+      const pool = (rng.next() < 0.5 && edge.length) || !plain.length ? edge : plain;
+      const q = pool.shift();
+      if (!q) break;
+      out.push(q);
+    }
+    return out.sort((a, b) => a.t - b.t || a.side - b.side);
+  }
+  // הזמן שבו המוצא מגיע לערך X: X עגול, מושג פעם אחת בלבד בכל הגרף (בקטע רציף)
+  function reverseQuestion(rng, ex) {
+    const { ts } = ex.wave, r = ex.resp, rg = ex.range, n = ts.length;
+    const segEnd = k => (k < n - 1 ? ts[k + 1] : rg.t1);
+    const segRange = k => { const a = r.plus[k], b = r.at(segEnd(k) - 1e-9); return [Math.min(a, b), Math.max(a, b)]; };
+    for (const k of rng.shuffle([...Array(n).keys()])) {
+      const a = r.plus[k], A = r.asym[k], [lo, hi] = segRange(k);
+      const xs = [];
+      for (let x = Math.ceil(lo * 2) / 2; x <= hi; x += 0.5) {
+        if (Math.abs(x) < MIN_VO || Math.abs(x - r.pre) < 0.3 || Math.abs(x - a) < 0.3 || Math.abs(x - A) < 0.3 || x - lo < 0.3 || hi - x < 0.3) continue;
+        const t = ts[k] + r.tau * Math.log((a - A) / (x - A));
+        if (!(t > ts[k] + 0.05 && t < segEnd(k) - 0.05)) continue;
+        // ייחודיות: הערך לא מושג בקטע רציף אחר
+        if ([...Array(n).keys()].some(j => j !== k && (() => { const [l2, h2] = segRange(j); return x >= l2 - 1e-9 && x <= h2 + 1e-9; })())) continue;
+        xs.push({ x, t, k });
+      }
+      if (xs.length) return rng.pick(xs);
+    }
+    return null;
+  }
+  // מסיחים לרמה 1: טעויות אופייניות, ורק אם שונים מספיק מהתשובה ומזה מזה
+  function graphOptions(rng, ex) {
+    const { wave, circ } = ex, tau = circ.tau, rg = ex.range, other = circ.ft === 'LP' ? 'HP' : 'LP';
+    const correct = ex.resp;
+    const pool = [
+      { why: 'other', r: response(wave, other, tau) },
+      { why: 'slow', r: response(wave, circ.ft, tau * 6) },
+      { why: 'fast', r: response(wave, circ.ft, tau / 8) },
+      { why: 'inverted', r: (() => { const b = response(wave, circ.ft, tau); return Object.assign({}, b, { at: (t, s) => -b.at(t, s) }); })() },
+    ];
+    if (circ.ft === 'HP') pool.push({ why: 'jumpLevel', r: response(wave, 'HP', tau, 'jumpLevel') });
+    const scale = Math.max(1, ...wave.v.map(Math.abs)), chosen = [{ why: 'correct', r: correct }];
+    for (const c of rng.shuffle(pool)) {
+      if (chosen.length >= 4) break;
+      if (chosen.every(o => maxDiff(t => o.r.at(t), t => c.r.at(t), rg) >= 0.2 * scale)) chosen.push(c);
+    }
+    return rng.shuffle(chosen);
+  }
+
+  // opts: { level, types:['RC-LP',...], seed?, lv? (לבדיקות: פורמט התרגיל) }
+  function makeExercise(opts) {
+    const seed = opts.seed != null ? opts.seed >>> 0 : randomSeed();
+    const rng = makeRng(seed), level = opts.level;
+    // בלי ערבוב מרמות נמוכות: כל רמה היא פורמט תרגיל אחר (lv לבדיקות בלבד)
+    const lv = opts.lv || level;
+    let type = rng.pick(opts.types), circ;
+    if (lv === 4) {   // ברמה 4 התלמיד מזהה את סוג המסנן: המשפחה (RC/RL) מההגדרות, LP/HP באקראי
+      const fam = TYPES[type].fam;
+      type = fam + '-' + rng.pick(['LP', 'HP']);
+    }
+    circ = Object.assign({ type }, TYPES[type], rng.pick(PAIRS[TYPES[type].fam]));
+    const nTrans = lv === 1 ? rng.int(1, 2) : lv === 2 ? 1 : lv === 3 ? 2 : rng.int(3, 4);
+    for (let tries = 0; tries < 500; tries++) {
+      const wave = makeWave(rng, nTrans), range = timeRange(wave, circ.tau);
+      const ex = { version: VERSION, seed, level, lv, kind: 'L' + lv, circ, wave, range, resp: response(wave, circ.ft, circ.tau) };
+      ex.text = intro(ex);
+      const parts = [];
+      if (lv === 1) {
+        ex.options = graphOptions(rng, ex);
+        if (ex.options.length < 3) continue;
+        const L = 'אבגד';
+        parts.push({ kind: 'graph', text: 'איזה מהגרפים מתאר את מתח המוצא V_o כפונקציה של הזמן?', prompt: 'בחרו את הגרף הנכון.',
+          answers: [{ type: 'choice', label: 'הגרף הנכון', short: 'הגרף', value: String(ex.options.findIndex(o => o.why === 'correct')),
+            options: ex.options.map((o, i) => ({ value: String(i), label: 'גרף ' + L[i] })) }] });
+      } else {
+        if (lv === 4) parts.push({ kind: 'type', text: 'ציינו את סוג המסנן (LP או HP), ונמקו לעצמכם את התשובה.',
+          answers: [{ type: 'choice', label: 'סוג המסנן', short: 'סוג המסנן', value: circ.ft,
+            options: [{ value: 'LP', label: FT_NAMES.LP }, { value: 'HP', label: FT_NAMES.HP }] }] });
+        if (lv === 2 || lv === 3) parts.push({ kind: 'tau', text: 'חשבו את קבוע הזמן τ של המסנן.',
+          answers: [{ type: 'num', sym: 'τ', value: circ.tau, unit: 'ms' }] });
+        parts.push({ kind: 'sketch', text: 'העתיקו למחברת את מתח המבוא V_i, וסרטטו מתחתיו, בהתאמה, את מתח המוצא V_o כפונקציה של הזמן.',
+          selfcheck: { button: 'הצג את הגרף הנכון להשוואה' } });
+        const qs = voQuestions(rng, ex, rng.int(1, 2));
+        if (!qs.length) continue;
+        qs.forEach(q => {
+          const v = ex.resp.at(q.t, q.side === -1 ? -1 : 1);
+          const when = q.side === -1 ? `רגע לפני t = ${q.t} ms` : q.side === 1 ? `רגע אחרי t = ${q.t} ms` : `בזמן t = ${q.t} ms`;
+          parts.push({ kind: 'vo', q, text: `חשבו את מתח המוצא V_o ${when}.`, answers: [{ type: 'num', sym: 'V_o', value: v, unit: 'V', signed: true }] });
+        });
+        if (lv >= 3 && rng.next() < 0.5) {
+          const rq = reverseQuestion(rng, ex);
+          if (rq) parts.push({ kind: 'rev', rq, text: `חשבו את הזמן t שבו מתח המוצא יהיה ${numStr(rq.x)} V.`,
+            answers: [{ type: 'num', sym: 't', value: rq.t, unit: 'ms' }] });
+        }
+      }
+      ex.parts = parts;
+      return ex;
+    }
+    throw new Error('no exercise');
+  }
+  function givensList(ex) {
+    const c = ex.circ, out = [{ sym: 'R', text: fmtR(c.R) }];
+    if (c.fam === 'RC') out.push({ sym: 'C', text: fmtC(c.C) }); else out.push({ sym: 'L', text: fmtL(c.L) });
+    return out;
+  }
+
+  // ---------------- Solutions ----------------
+  const EXPLAIN = {
+    'RC-LP': 'המוצא נלקח על הקבל. המתח על קבל לא יכול להשתנות בבת אחת, ולכן במעבר חד המוצא לא קופץ אלא מתקרב בהדרגה לרמת המבוא. במתח קבוע הקבל נטען עד מתח המבוא: המסנן מעביר מתח קבוע (תדרים נמוכים).',
+    'RC-HP': 'המוצא נלקח על הנגד, והקבל בטור. המתח על הקבל לא משתנה בבת אחת, ולכן במעבר המוצא קופץ בגודל הקפיצה של המבוא, ואחר כך דועך ל-0 כשהקבל נטען. מתח קבוע לא עובר (המוצא 0): המסנן מעביר רק שינויים מהירים (תדרים גבוהים).',
+    'RL-LP': 'המוצא נלקח על הנגד, והסליל בטור. הזרם בסליל לא משתנה בבת אחת, ולכן גם המתח על הנגד לא קופץ אלא מתקרב בהדרגה לרמת המבוא. במתח קבוע הסליל מתנהג כקצר: המסנן מעביר מתח קבוע (תדרים נמוכים).',
+    'RL-HP': 'המוצא נלקח על הסליל. הזרם בסליל לא משתנה בבת אחת, ולכן במעבר כל קפיצת המבוא מופיעה על הסליל, ואחר כך המתח עליו דועך ל-0. במתח קבוע הסליל מתנהג כקצר והמוצא 0: המסנן מעביר רק שינויים מהירים (תדרים גבוהים).',
+  };
+  function tauLine(c) {
+    return c.fam === 'RC' ? `τ = R·C = ${fmtR(c.R)} · ${fmtC(c.C)} = ${fmtT(c.tau)}` : `τ = L / R = ${fmtL(c.L)} / ${fmtR(c.R)} = ${fmtT(c.tau)}`;
+  }
+  // הסבר בעברית עם ערכים מבודדים משמאל לימין; נוסחאות בשורה נפרדת בלי עברית
+  const B = x => `<bdi dir="ltr">${x}</bdi>`;
+  const vv = x => B(fmtV(x)), tt = x => B(fmtT(x));
+  // ערכי המוצא סביב כל מעבר, עד הקטע הנדרש
+  function transitionItems(ex, upto, li) {
+    const r = ex.resp, out = [];
+    ex.wave.ts.forEach((t, k) => {
+      if (k > upto) return;
+      const a = ex.wave.v[k], b = ex.wave.v[k + 1];
+      out.push(li(`ב-${B('t = ' + fmtT(t))} המבוא עובר מ-${vv(a)} ל-${vv(b)} (${B('ΔV_i = ' + fmtV(b - a)).replace('V_i', 'V<sub>i</sub>')}).`,
+        `V_o(${t}⁻) = ${fmtV(r.minus[k])},   V_o(${t}⁺) = ${fmtV(r.plus[k])}`));
+    });
+    return out;
+  }
+  function segFormula(ex, k, t) {
+    const r = ex.resp, A = r.asym[k], a = r.plus[k], tk = ex.wave.ts[k], n = x => (x < 0 ? `(${numStr(x)})` : numStr(x));
+    const head = ex.circ.ft === 'LP'
+      ? `V_o(${numStr(t)}) = ${n(A)} + (${n(roundSig(a, 4))} − ${n(A)})·e^(−(${numStr(t)} − ${tk})/${numStr(ex.circ.tau)})`
+      : `V_o(${numStr(t)}) = ${n(roundSig(a, 4))}·e^(−(${numStr(t)} − ${tk})/${numStr(ex.circ.tau)})`;
+    return `${head} = ${fmtV(r.at(t))}`;
+  }
+  function solutionHtml(ex, pi) {
+    const part = ex.parts[pi], c = ex.circ, esc = global.Core.esc, symHtml = global.Core.symHtml;
+    // note: HTML (כבר מוכן), eq: טקסט נוסחה משמאל לימין
+    const li = (note, eq) => `<li>${note ? `<div class="sn">${note}</div>` : ''}${eq ? `<div class="eq" dir="ltr">${symHtml(esc(eq)).replace(/V_∞/g, 'V<sub>∞</sub>')}</div>` : ''}</li>`;
+    const rule = c.ft === 'LP'
+      ? li('במסנן LP המוצא רציף ומתקרב לרמת המבוא בקטע (V<sub>∞</sub>), החל מהערך שלו ברגע המעבר (V<sub>0</sub>):', 'V_o(t) = V_∞ + (V_0 − V_∞)·e^(−(t − t_k)/τ)')
+      : li('במסנן HP ברגע המעבר המוצא קופץ בגודל הקפיצה של המבוא (V<sub>0</sub> = הערך רגע אחרי המעבר), ואחר כך דועך ל-0:', 'V_o(t) = V_0·e^(−(t − t_k)/τ)');
+    let items = [];
+    if (part.kind === 'graph') {
+      const L = 'אבגד', i = ex.options.findIndex(o => o.why === 'correct');
+      items = [li(`הגרף הנכון: גרף ${L[i]}.`, ''), li(esc(EXPLAIN[c.type]), '')];
+    } else if (part.kind === 'type') items = [li(`${esc(FT_NAMES[c.ft])}.`, ''), li(esc(EXPLAIN[c.type]), '')];
+    else if (part.kind === 'tau') items = [li('קבוע הזמן של המסנן:', tauLine(c))];
+    else if (part.kind === 'sketch') return '';
+    else if (part.kind === 'vo') {
+      const q = part.q, ts = ex.wave.ts;
+      let k = -1;
+      ts.forEach((t, i) => { if (q.t >= t) k = i; });
+      if (q.side === -1) k--;
+      items = [li('קבוע הזמן:', tauLine(c)), rule];
+      if (k < 0) items.push(li('לפני המעבר הראשון המעגל במצב יציב.', `V_o = ${fmtV(ex.resp.pre)}`));
+      else {
+        items.push(...transitionItems(ex, q.side === -1 ? k + 1 : k, li));
+        if (q.side === 0) items.push(li(`בקטע שאחרי ${B('t = ' + fmtT(ts[k]))}:`, segFormula(ex, k, q.t)));
+      }
+    } else if (part.kind === 'rev') {
+      const { x, t, k } = part.rq, A = ex.resp.asym[k], a = ex.resp.plus[k], tk = ex.wave.ts[k], n = v => (v < 0 ? `(${numStr(v)})` : numStr(v));
+      items = [li('קבוע הזמן:', tauLine(c)), rule, ...transitionItems(ex, k, li)];
+      items.push(li(`המוצא מגיע ל-${vv(x)} בקטע שאחרי ${B('t = ' + fmtT(tk))}. מבודדים את t מהנוסחה:`,
+        `t = t_k + τ·ln((V_0 − V_∞)/(V_o − V_∞)) = ${tk} + ${numStr(c.tau)}·ln((${n(roundSig(a, 4))} − ${n(A)})/(${n(x)} − ${n(A)})) = ${fmtT(t)}`));
+    }
+    return '<ol class="steps">' + items.join('') + '</ol>';
+  }
+
+  // ---------------- Draw (SVG) ----------------
+  const W = 480, CH = 7.8;
+  const rd = x => Math.round(x * 10) / 10;
+  const ln = (x1, y1, x2, y2, cls) => `<line${cls ? ` class="${cls}"` : ''} x1="${rd(x1)}" y1="${rd(y1)}" x2="${rd(x2)}" y2="${rd(y2)}"/>`;
+  const txt = (x, y, s, anchor, extra) => `<text x="${rd(x)}" y="${rd(y)}" text-anchor="${anchor || 'middle'}"${extra || ''}>${s}</text>`;
+  const sub = (b, s) => `${b}<tspan dy="4" font-size="11">${s}</tspan><tspan dy="-4"></tspan>`;
+  const STYLE = `<style>.flt line,.flt polyline,.flt path{stroke:#1f2937;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}` +
+    `.flt text{fill:#1f2937}.flt .ax{stroke-width:1.4}.flt .grid{stroke:#9ca3af;stroke-width:1;stroke-dasharray:3 3}` +
+    `.flt .sig{stroke:#111827;stroke-width:3}.flt .vin{stroke:#9ca3af;stroke-width:2;stroke-dasharray:6 4}.flt .fill{fill:#1f2937;stroke:none}` +
+    `.flt .term{fill:#fff;stroke:#1f2937;stroke-width:1.6}.flt .opt{fill:none;stroke:#cbd5e1;stroke-width:1.5}.flt .opthead{fill:#eef2ff;stroke:none}.flt .mark{fill:#d9480f;stroke:none}.flt .lbl{fill:#d9480f;font-size:12px}</style>`;
+  const svgWrap = (w, h, body) => `<svg xmlns="http://www.w3.org/2000/svg" class="flt" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" ` +
+    `direction="ltr" font-family="Arial, Helvetica, sans-serif" font-size="14" role="img">${STYLE}<rect width="100%" height="100%" fill="#fff"/>${body}</svg>`;
+
+  // רכיב בין שתי נקודות (אופקי או אנכי), עם שם וערך
+  function element(kind, x1, y1, x2, y2, name, value) {
+    const o = [], vert = x1 === x2, cx = (x1 + x2) / 2, cy = (y1 + y2) / 2;
+    const L = kind === 'R' ? 25 : kind === 'L' ? 24 : 5;
+    const a = vert ? [cx, cy - L] : [cx - L, cy], b = vert ? [cx, cy + L] : [cx + L, cy];
+    o.push(ln(x1, y1, a[0], a[1]), ln(b[0], b[1], x2, y2));
+    if (kind === 'R') {
+      const pts = [a];
+      for (let i = 0; i < 6; i++) { const s = -25 + 50 * (2 * i + 1) / 12, w = i % 2 ? 8 : -8; pts.push(vert ? [cx + w, cy + s] : [cx + s, cy + w]); }
+      pts.push(b);
+      o.push(`<polyline points="${pts.map(p => rd(p[0]) + ',' + rd(p[1])).join(' ')}"/>`);
+    } else if (kind === 'C') {
+      if (vert) o.push(ln(cx - 14, cy - 5, cx + 14, cy - 5), ln(cx - 14, cy + 5, cx + 14, cy + 5));
+      else o.push(ln(cx - 5, cy - 14, cx - 5, cy + 14), ln(cx + 5, cy - 14, cx + 5, cy + 14));
+    } else {   // סליל: ארבע לולאות
+      o.push(vert ? `<path d="M${rd(cx)},${rd(cy - 24)} a6,6 0 0 1 0,12 a6,6 0 0 1 0,12 a6,6 0 0 1 0,12 a6,6 0 0 1 0,12"/>`
+        : `<path d="M${rd(cx - 24)},${rd(cy)} a6,6 0 0 1 12,0 a6,6 0 0 1 12,0 a6,6 0 0 1 12,0 a6,6 0 0 1 12,0"/>`);
+    }
+    if (vert) o.push(txt(cx - 18, cy + 5, name, 'end'), txt(cx + 18, cy + 5, value, 'start'));
+    else o.push(txt(cx, cy - 20, name), txt(cx, cy + 32, value));
+    return o.join('');
+  }
+  function circuitSvg(ex) {
+    const c = ex.circ, x0 = 110, xn = 270, x1 = 370, yT = 40, yB = 170, o = [];
+    const val = k => (k === 'R' ? fmtR(c.R) : k === 'C' ? fmtC(c.C) : fmtL(c.L));
+    o.push(element(c.series, x0, yT, xn, yT, c.series, val(c.series)));
+    o.push(ln(xn, yT, x1, yT), ln(x0, yB, x1, yB));
+    o.push(element(c.shunt, xn, yT, xn, yB, c.shunt, val(c.shunt)));
+    o.push(`<circle class="fill" cx="${xn}" cy="${yT}" r="3.5"/><circle class="fill" cx="${xn}" cy="${yB}" r="3.5"/>`);
+    [[x0, yT], [x0, yB], [x1, yT], [x1, yB]].forEach(([x, y]) => o.push(`<circle class="term" cx="${x}" cy="${y}" r="4"/>`));
+    // חיצי מתח במבוא ובמוצא
+    [[x0, 'V', 'i', 'end', -12], [x1, 'V', 'o', 'start', 12]].forEach(([x, b, s, an, dx]) => {
+      o.push(ln(x, yB - 10, x, yT + 14), `<path class="fill" d="M${x},${yT + 10} l-5,10 h10 z"/>`, txt(x + dx, (yT + yB) / 2 + 5, sub(b, s), an));
+    });
+    return o.join('');
+  }
+  // גרף: series = [{ pts, cls }], ערכי y מסומנים בקווים מקווקווים
+  function graph(gx, gy, gw, gh, range, vr, series, yLabel, marks, caption) {
+    const o = [], X = t => gx + 34 + (t - range.t0) / (range.t1 - range.t0) * (gw - 60), Y = v => gy + 14 + (vr[1] - v) / (vr[1] - vr[0]) * (gh - 40);
+    const yAxisX = X(Math.max(range.t0, 0)), y0 = Y(0);
+    o.push(ln(gx + 30, y0, gx + gw - 14, y0, 'ax'), `<path class="fill" d="M${rd(gx + gw - 8)},${rd(y0)} l-9,-4 v8 z"/>`);
+    o.push(ln(yAxisX, gy + gh - 18, yAxisX, gy + 6, 'ax'), `<path class="fill" d="M${rd(yAxisX)},${gy} l-4,9 h8 z"/>`);
+    o.push(txt(gx + gw - 12, y0 - 8, 't [ms]', 'end', ' font-size="12"'), txt(yAxisX + 6, gy + 10, yLabel, 'start', ' font-size="12"'));
+    const step = range.t1 - range.t0 > 10 ? 2 : 1;
+    for (let t = Math.ceil(range.t0); t <= range.t1; t += step) if (t !== 0) {
+      o.push(ln(X(t), y0 - 3, X(t), y0 + 3, 'ax'), txt(X(t), y0 + 16, String(t), 'middle', ' font-size="11"'));
+    }
+    // ערכי ציר y בשולי הגרף (משמאל לתחילת הזמן), כדי שהאות שלפני t = 0 לא יעבור עליהם
+    const lx = X(range.t0) - 6;
+    o.push(txt(lx, y0 + 4, '0', 'end', ' font-size="11"'));
+    marks.forEach(v => { if (v !== 0) o.push(ln(X(range.t0), Y(v), gx + gw - 20, Y(v), 'grid'), txt(lx, Y(v) + 4, String(v), 'end', ' font-size="11"')); });
+    series.forEach(s => o.push(`<polyline class="${s.cls}" points="${s.pts.map(p => rd(X(p[0])) + ',' + rd(Y(p[1]))).join(' ')}"/>`));
+    if (caption) o.push(txt(gx + 8, gy + 14, caption, 'start', ' font-weight="bold"'));
+    return { svg: o.join(''), X, Y };
+  }
+  const vRange = vals => { const lo = Math.min(0, ...vals), hi = Math.max(0, ...vals), pad = Math.max(1, 0.12 * (hi - lo)); return [lo - pad, hi + pad]; };
+  function render(ex) {
+    const o = [circuitSvg(ex)], rg = ex.range, wave = ex.wave;
+    const vin = samples(null, wave, rg, true);
+    const g = graph(0, 210, W, 210, rg, vRange(wave.v), [{ pts: vin, cls: 'sig' }], sub('V', 'i') + ' [V]', [...new Set(wave.v)]);
+    o.push(g.svg);
+    let H = 430;
+    if (ex.options) {   // רמה 1: אפשרויות לגרף המוצא, באותו קנה מידה
+      const all = ex.options.map(op => samples(op.r.at, wave, rg, false));
+      const vr = vRange(all.flat().map(p => p[1]));
+      const L = 'אבגד';
+      // כל אפשרות במסגרת משלה, עם כותרת "גרף א" בראש המסגרת
+      const CW = W / 2, CHT = 200;
+      ex.options.forEach((op, i) => {
+        const cx = i % 2 ? 0 : CW, cy = 440 + Math.floor(i / 2) * (CHT + 8);   // א מימין, כמו בקריאה בעברית
+        o.push(`<rect class="opt" x="${cx + 4}" y="${cy}" width="${CW - 8}" height="${CHT}" rx="10"/>`);
+        o.push(`<rect class="opthead" x="${cx + 4}" y="${cy}" width="${CW - 8}" height="28" rx="10"/><rect class="opthead" x="${cx + 4}" y="${cy + 18}" width="${CW - 8}" height="10"/>`);
+        o.push(txt(cx + CW - 16, cy + 19, 'גרף ' + L[i], 'end', ' font-weight="bold"'));
+        o.push(graph(cx + 6, cy + 34, CW - 12, CHT - 38, rg, vr, [{ pts: all[i], cls: 'sig' }], sub('V', 'o'), []).svg);
+      });
+      H = 440 + Math.ceil(ex.options.length / 2) * (CHT + 8) + 4;
+    }
+    return { svg: svgWrap(W, H, o.join('')), width: W, height: H };
+  }
+  // הגרף הנכון לבדיקה העצמית: V_o מודגש, V_i מקווקו, וערכי המוצא במעברים
+  function answerGraph(ex) {
+    const rg = ex.range, wave = ex.wave, r = ex.resp;
+    const vo = samples(r.at, wave, rg, false), vin = samples(null, wave, rg, true);
+    const vr = vRange(vin.map(p => p[1]).concat(vo.map(p => p[1])));
+    const g = graph(0, 0, W, 240, rg, vr, [{ pts: vin, cls: 'vin' }, { pts: vo, cls: 'sig' }], 'V [V]', []);
+    const o = [g.svg];
+    wave.ts.forEach((t, k) => {
+      const pts = Math.abs(r.minus[k] - r.plus[k]) < 1e-9 ? [r.plus[k]] : [r.minus[k], r.plus[k]];
+      pts.forEach((v, j) => {
+        o.push(`<circle class="mark" cx="${rd(g.X(t))}" cy="${rd(g.Y(v))}" r="3.5"/>`);
+        o.push(txt(g.X(t) + (j ? 6 : -6), g.Y(v) + (v >= 0 ? -6 : 14), numStr(Math.round(v * 100) / 100), j ? 'start' : 'end', ' class="lbl"'));
+      });
+    });
+    const legend = `<line class="sig" x1="${W - 150}" y1="12" x2="${W - 128}" y2="12"/>` + txt(W - 124, 16, sub('V', 'o'), 'start', ' font-size="12"') +
+      `<line class="vin" x1="${W - 80}" y1="12" x2="${W - 58}" y2="12"/>` + txt(W - 54, 16, sub('V', 'i'), 'start', ' font-size="12"');
+    return svgWrap(W, 250, o.join('') + legend);
+  }
+
+  global.Engine = {
+    VERSION, MAX_LEVEL, MAX_ATTEMPTS, TOL, MIN_VO, TYPES, TAUS, PAIRS, R_RC, C_RC, L_RL, R_RL, LEVELS_V,
+    makeRng, randomSeed, Units, makeExercise, givensList, response, inputAt, solutionHtml, answerGraph, fmtC, fmtR, fmtL,
+    minLevel: () => 1, Draw: { render },
+  };
+})(typeof window !== 'undefined' ? window : globalThis);
+</script>
+
+<!-- ======================= ממשק (common/core.js) ======================= -->
+<script>
+(function () {
+  'use strict';
+  const E = window.Engine, $ = id => document.getElementById(id), esc = Core.esc;
+  const TYPE_IDS = ['RC-LP', 'RC-HP', 'RL-LP', 'RL-HP'];
+  const readSettings = () => ({ types: TYPE_IDS.filter(t => $('t' + t).checked), level: +$('level').value });
+  function syncSettings() {
+    const s = readSettings();
+    let note = s.types.length ? '' : 'יש לבחור לפחות סוג מסנן אחד.';
+    if (s.types.length && +$('level').value === 4) note = 'ברמה 4 התלמיד מזהה בעצמו אם המסנן LP או HP, ולכן הבחירה כאן קובעת רק RC או RL.';
+    $('setNote').textContent = note;
+    $('start').disabled = !s.types.length;
+  }
+  TYPE_IDS.map(t => 't' + t).concat('level').forEach(id => $(id).addEventListener('change', syncSettings));
+  syncSettings();
+
+  Core.mountUI({
+    engine: E, units: E.Units, prefixes: [''],
+    readSettings, minLevel: () => 1,
+    makeExercise: (s, level) => E.makeExercise({ level, types: s.types }),
+    ctypeHtml: ex => (ex.lv === 4 ? `מסנן <bdi dir="ltr">${ex.circ.fam}</bdi>` : `מסנן <bdi dir="ltr">${ex.circ.type}F</bdi>`),
+    render: ex => E.Draw.render(ex),
+    givens: ex => E.givensList(ex),
+    parts: ex => ex.parts.map(p => (p.selfcheck ? Object.assign({}, p, { selfcheck: Object.assign({}, p.selfcheck, { html: E.answerGraph(ex) }) }) : p)),
+    solution: { title: 'פתרון', html: (ex, pi) => E.solutionHtml(ex, pi), onCorrect: true },
+    failSuffix: '',
+  });
+})();
+</script>
+</body>
+</html>

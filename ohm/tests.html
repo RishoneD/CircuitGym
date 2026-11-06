@@ -196,7 +196,7 @@
   {
     const o = { level: 4, types: ['M'], power: true, prefixes: true, seed: 12345 };
     const a = E.makeExercise(o), b = E.makeExercise(o);
-    ok(a.answer === b.answer && E.Draw.render(a).svg === E.Draw.render(b).svg, 'same seed -> same exercise');
+    ok(JSON.stringify(a.parts.map(p => p.answers)) === JSON.stringify(b.parts.map(p => p.answers)) && E.Draw.render(a).svg === E.Draw.render(b).svg, 'same seed -> same exercise');
   }
 
   // ---------- מכשירי מדידה ----------
@@ -206,7 +206,8 @@
       const o = { level: 1 + s % 5, types: ['S', 'P', 'M'], power: true, prefixes: s % 2 === 0, seed: s * 7919 + 3 };
       const a = E.makeExercise(o), b = E.makeExercise(Object.assign({ meters: true }, o));
       n++;
-      if (a.answer === b.answer && a.text === b.text && JSON.stringify(a.steps) === JSON.stringify(b.steps)) same++;
+      // המתג משנה רק את אופן ההצגה (ובתרגיל עם סעיפים את משפט הנתון), לא את השאלות, התשובות והפתרון
+      if (JSON.stringify(a.parts) === JSON.stringify(b.parts) && (a.format !== 'single' || a.text === b.text)) same++;
       ok(!a.meters, 'meters off when switch off');
       const hasIV = b.ann.IT !== undefined || Object.values(b.ann.resExtra).some(l => l.some(e => e.q === 'I' || e.q === 'V'));
       if (hasIV) { rel++; if (b.meters) on++; } else ok(!b.meters, 'no meters without currents/voltages');
@@ -236,6 +237,62 @@
     }
   }
 
+  // ---------- סעיפים (רמות 2–5): כל הגדלים מתוך הנתונים המוצגים בלבד ----------
+  function verifyMulti(ex) {
+    const P = ex.prefixes, a = ex.ann, Uq = { I: 'A', V: 'V' };
+    const shown = (x, unit) => {
+      const t = E.Units.format(x, unit, P, 4), v = parseShown(t);
+      ok(rel(v, x) < 1e-9, `displayed value rounded: ${x} -> "${t}" (seed ${ex.seed})`);
+      return v;
+    };
+    const root = cloneTree(ex.circuit.root), ls = leavesOf(root);
+    ls.forEach(l => { const v = a.R[l.idx]; l.R = v == null ? null : shown(v, 'Ω'); });
+    let VT = a.VT == null ? null : shown(a.VT, 'V');
+    const gk = Object.keys(a.resExtra).find(k => a.resExtra[k].some(e => e.value != null));
+    const ge = gk && a.resExtra[gk].find(e => e.value != null), g = ge ? shown(ge.value, Uq[ge.q]) : null;
+    const x = ls.find(l => l.R == null);
+    if (x) {   // נגד לא ידוע: מוצאים אותו כך שהנתון בנגד gk יתקיים (הגודל יורד כשההתנגדות עולה)
+      let lo = Math.log(1e-3), hi = Math.log(1e9);
+      for (let i = 0; i < 200; i++) { const mid = (lo + hi) / 2; x.R = Math.exp(mid); if (solveV(root, VT).res[gk][ge.q] > g) lo = mid; else hi = mid; }
+      x.R = Math.exp((lo + hi) / 2);
+    }
+    if (VT == null) VT = g / solveV(root, 1).res[gk][ge.q];   // הכול לינארי במתח המקור
+    const sol = solveV(root, VT), q = { RT: req(root), IT: sol.IT, VT };
+    ls.forEach(l => { const r = sol.res[l.idx]; q['I' + l.idx] = r.I; q['V' + l.idx] = r.V; q['P' + l.idx] = r.I * r.V; q['R' + l.idx] = l.R; });
+    return q;
+  }
+  const multiStats = {};
+  function multiChecks(ex, level, power, prefixes) {
+    const tag = `(seed ${ex.seed}, L${level} ${ex.format}, ${ex.ctype})`, n = ex.parts.length, simple = ex.ctype !== 'M';
+    multiStats[`${simple ? 'S/P' : 'M'} L${level} ${ex.format} ${n}`] = (multiStats[`${simple ? 'S/P' : 'M'} L${level} ${ex.format} ${n}`] || 0) + 1;
+    ok(simple || level === 2 ? n >= 2 && n <= 3 : n >= 3 && n <= 4, `part count ${n} ` + tag);
+    ok(level === 2 ? ex.format === 'fwd' : ['fwd', 'given', 'rx'].includes(ex.format), 'style for level ' + tag);
+    ok(ex.format !== 'rx' || !simple, 'rx only in mixed ' + tag);
+    ok((ex.format === 'given') === (ex.ann.VT == null), 'source shown unless given-style ' + tag);
+    ok(power || !ex.parts.some(p => p.answers.some(a => a.q[0] === 'P')), 'no power when off ' + tag);
+    let q;
+    try { q = verifyMulti(ex); } catch (e) { ok(false, 'verifyMulti threw ' + e.message + ' ' + tag); return; }
+    // כל סמל בנוסחה הוא נתון, או חושב בשלב קודם (גם בסעיפים קודמים)
+    const known = new Set(E.givensList(ex).map(g => g.sym));
+    ex.parts.forEach((p, pi) => {
+      p.answers.forEach(a => {
+        ok(q[a.q] !== undefined, `part ${pi + 1}: ${a.q} unknown to verifier ` + tag);
+        ok(rel(q[a.q], a.value) < 1e-6, `part ${pi + 1} ${a.sym}: engine ${a.value} vs verifier ${q[a.q]} ` + tag);
+        ok(U.check(parseShown(U.formatAnswer(a.value, a.unit, prefixes)), a.value), 'displayed answer not accepted ' + tag);
+      });
+      const tail = p.steps.slice(-p.answers.length);
+      ok(p.steps.length > 0 && p.answers.every((a, j) => rel(tail[j].value, a.value) < 1e-9), `last step != answer in part ${pi + 1} ` + tag);
+      for (const st of p.steps) {
+        ok(isFinite(st.value) && st.value > 0, 'bad step value ' + tag);
+        const missing = (st.formula.match(/\b[RIVP]_[0-9A-Za-z]+/g) || []).filter(u => !known.has(u));
+        ok(!missing.length, `part ${pi + 1}: step uses undefined ${missing.join(',')} in ${st.lhs} ` + tag);
+        known.add(st.lhs);
+      }
+      ok(p.text && !/undefined|NaN/.test(p.text), 'part text ' + tag);
+    });
+    ok(!/undefined|NaN/.test(ex.text), 'intro text ' + tag);
+  }
+
   // ---------- ריצה המונית ----------
   const N = +(new URLSearchParams(location.search).get('n') || 40);
   const typeSets = [['S'], ['P'], ['M'], ['S', 'P'], ['S', 'M'], ['P', 'M'], ['S', 'P', 'M']];
@@ -257,6 +314,8 @@
       ok(ex.level < 2 ? !['VT_IT', 'VT_k', 'Rx_ohm', 'Rx_T'].includes(ex.kind) : true, 'no inverse at level 1');
       ok(power || !['Pk', 'PT'].includes(ex.kind), 'no power when off');
       treeChecks(ex);
+      if (ex.format !== 'single') { multiChecks(ex, level, power, prefixes); drawChecks(ex, dstats); continue; }
+      ok(level === 1, 'single question only at level 1');
       let v;
       try { v = verify(ex); } catch (e) { ok(false, 'verify threw: ' + e.message + ` (seed ${seed})`); continue; }
       ok(rel(v, ex.answer) < 1e-6, `answer mismatch ${ex.kind}: engine ${ex.answer} vs verifier ${v} (seed ${seed})`);
@@ -281,6 +340,7 @@
   const dt = performance.now() - t0;
 
   log(`exercises: ${total}   time: ${(dt / 1000).toFixed(1)} s`);
+  log('multi-part (type level style parts): ' + JSON.stringify(multiStats));
   log(`by circuit type: ${JSON.stringify(ctypeCount)}`);
   for (const [m, d] of Object.entries(dstats))
     log(`drawing ${m.padEnd(8)}: max width ${d.maxW.toFixed(0)}, max height ${d.maxH.toFixed(0)}, with vertical ${(100 * d.vertical / d.n).toFixed(0)}%, split ${(100 * d.split / d.n).toFixed(0)}%`);

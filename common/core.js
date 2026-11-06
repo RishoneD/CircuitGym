@@ -3,7 +3,8 @@
  * - Core.makeUnits: הצגת ערכים עם/בלי תחיליות, פענוח קלט ובדיקת תשובות.
  * - Core.levelChoices: בחירת רמה בסוף תרגיל.
  * - Core.mountUI: מסך התרגיל, כולל שאלות עם כמה סעיפים וסוגי תשובות:
- *   num (מספר + יחידה + תחילית), angle (מספר עם מינוס), choice (בחירה מרשימה), binary (מספר בינארי).
+ *   num (מספר + יחידה + תחילית; signed = מותר מינוס), angle (מספר עם מינוס), choice (בחירה מרשימה), binary (מספר בינארי).
+ *   סעיף "בדיקה עצמית" (selfcheck): בלי תשובה; כפתור שמציג את הפתרון להשוואה, ולא נספר בציון.
  * המודולים טוענים את הקובץ לפני המנוע שלהם: <script src="../common/core.js"></script>
  */
 (function (global) {
@@ -114,6 +115,10 @@
     <ol id="doneParts" class="parts" hidden></ol>
     <p id="ptext" class="q ptext" hidden></p>
     <div id="unknown" class="givens"></div>
+    <div id="selfBox" class="selfbox" hidden>
+      <button id="selfBtn" type="button" class="primary"></button>
+      <div id="selfBody" hidden></div>
+    </div>
     <form id="ansForm" class="ans" autocomplete="off">
       <label>התשובה:</label>
       <div id="ansRows" class="ansrows"></div>
@@ -142,7 +147,9 @@
    *  render(ex) -> { svg, width }
    *  givens(ex) -> [{ sym, text }]
    *  parts(ex) -> [{ text?, answers: [answer] }]  (סעיף אחד = שאלה רגילה; ex.text הוא ההקדמה)
-   *     answer: { type:'num'|'angle'|'choice'|'binary', sym?, label?, value, unit?, prefix?, options?:[{value,label}] }
+   *     answer: { type:'num'|'angle'|'choice'|'binary', sym?, label?, value, unit?, prefix?, signed?, options?:[{value,label}] }
+   *     prompt (אופציונלי): הנחיה במקום שורת "נעלם"
+   *     או סעיף בדיקה עצמית: { text, selfcheck: { button, html } } (לא נבדק ולא נספר בציון)
    *  solution: { title, html(ex, partIndex), onCorrect: true/false }
    *  failSuffix: טקסט אחרי התשובה הנכונה כשמוצג פתרון (למשל 'הנה הפתרון המלא:')
    */
@@ -153,6 +160,7 @@
     $('play').innerHTML = PLAY_HTML;
     const st = { settings: null, level: 1, ex: null, parts: null, pi: 0, failed: 0, finished: false, prevKind: null, results: [] };
     const multi = () => st.parts.length > 1;
+    const graded = () => st.parts.filter(p => !p.selfcheck).length;
 
     $('start').addEventListener('click', () => {
       st.settings = cfg.readSettings();
@@ -209,15 +217,35 @@
       const letter = multi() ? `${PART_LETTERS[st.pi]}. ` : '';
       $('ptext').hidden = !multi();
       $('ptext').innerHTML = multi() ? `<b>${letter}</b>${symHtml(esc(part.text || ''))}` : '';
-      $('unknown').innerHTML = '<span class="muted">נעלם:</span> ' + part.answers.map(a => a.type === 'choice'
-        ? `<span class="chip unk">${esc(a.label)}</span>`
-        : `<span class="chip unk" dir="ltr">${symHtml(esc(a.sym))} = ?</span>`).join(' ');
+      const self = !!part.selfcheck;
+      $('selfBox').hidden = !self;
+      $('ansForm').hidden = self;
+      $('unknown').hidden = self;
+      setFeedback('', '');
+      $('solution').hidden = true;
+      $('showSol').hidden = true;
+      $('nextPart').hidden = true;
+      $('next').hidden = false;
+      if (self) {
+        $('selfBtn').textContent = part.selfcheck.button;
+        $('selfBtn').disabled = false;
+        $('selfBody').hidden = true;
+        $('selfBody').innerHTML = part.selfcheck.html;
+        $('ansRows').innerHTML = '';
+        updateTries();
+        return;
+      }
+      // part.prompt (אופציונלי) מחליף את שורת "נעלם" בהנחיה, למשל "בחרו את הגרף הנכון."
+      $('unknown').innerHTML = part.prompt ? `<span class="prompt">${symHtml(esc(part.prompt))}</span>`
+        : '<span class="muted">נעלם:</span> ' + part.answers.map(a => a.type === 'choice'
+          ? `<span class="chip unk">${esc(a.label)}</span>`
+          : `<span class="chip unk" dir="ltr">${symHtml(esc(a.sym))} = ?</span>`).join(' ');
       $('ansRows').innerHTML = part.answers.map((a, i) => {
         if (a.type === 'choice')
           return `<span class="ansbox dirbox">${esc(a.label)}: <select data-i="${i}" class="ch"><option value="">בחרו</option>${a.options.map(o => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('')}</select></span>`;
         const pre = a.type === 'num' && a.prefix
           ? `<select data-i="${i}" class="pre" aria-label="תחילית">${PREFIX_ORDER.filter(p => cfg.prefixes.includes(p)).map(p => `<option value="${PREFIX_OPTS[p][0]}">${PREFIX_OPTS[p][1]}</option>`).join('')}</select>` : '';
-        const mode = a.type === 'angle' ? 'text' : a.type === 'binary' ? 'numeric' : 'decimal';
+        const mode = a.type === 'angle' || a.signed ? 'text' : a.type === 'binary' ? 'numeric' : 'decimal';
         return `<span class="ansbox" dir="ltr"><span class="usym">${symHtml(esc(a.sym || ''))}</span> =
           <input data-i="${i}" class="val" type="text" inputmode="${mode}" dir="ltr" spellcheck="false">
           ${pre}<span>${esc(a.unit || '')}</span></span>`;
@@ -234,7 +262,8 @@
       updateTries();
     }
     function updateTries() {
-      $('tries').textContent = st.finished || $('ansRows').querySelector('[disabled]') ? '' : `ניסיון ${st.failed + 1} מתוך ${E.MAX_ATTEMPTS}`;
+      const self = st.parts && st.parts[st.pi] && st.parts[st.pi].selfcheck;
+      $('tries').textContent = st.finished || self || $('ansRows').querySelector('[disabled]') ? '' : `ניסיון ${st.failed + 1} מתוך ${E.MAX_ATTEMPTS}`;
     }
     function setFeedback(cls, html) { $('feedback').className = 'fb ' + cls; $('feedback').innerHTML = html; }
     function lockPart() {
@@ -255,7 +284,8 @@
     }
     function finish() {
       st.finished = true;
-      const correct = st.results.every(r => r.correct), attempt = Math.max(...st.results.map(r => r.attempt));
+      const g = st.results.filter(r => !r.self);
+      const correct = g.every(r => r.correct), attempt = Math.max(1, ...g.map(r => r.attempt));
       const opts = levelChoices(st.level, correct, attempt, cfg.minLevel(st.settings), E.MAX_LEVEL, E.MAX_ATTEMPTS);
       const label = n => (opts.length === 1 ? 'לתרגיל הבא'
         : n > st.level ? `לעלות לרמה ${n}` : n < st.level ? `לרדת לרמה ${n}` : `להישאר ברמה ${n}`);
@@ -270,11 +300,23 @@
       // הסעיף שהסתיים עובר לרשימת הסעיפים שנענו
       const part = st.parts[st.pi], r = st.results[st.pi];
       const li = document.createElement('li');
-      li.innerHTML = `${symHtml(esc(part.text || ''))} <span class="${r.correct ? 'ok' : 'bad'}">${r.correct ? '✓' : '✗'}</span> ${partAnswerText(part)}`;
+      li.innerHTML = part.selfcheck ? `${symHtml(esc(part.text || ''))} <span class="muted">(בדיקה עצמית)</span>`
+        : `${symHtml(esc(part.text || ''))} <span class="${r.correct ? 'ok' : 'bad'}">${r.correct ? '✓' : '✗'}</span> ${partAnswerText(part)}`;
       $('doneParts').appendChild(li);
       $('doneParts').hidden = false;
       st.pi++; st.failed = 0;
       renderPart();
+    });
+    $('selfBtn').addEventListener('click', () => {
+      $('selfBody').hidden = false;
+      $('selfBtn').disabled = true;
+      st.results.push({ self: true });
+      if (st.pi < st.parts.length - 1) { $('nextPart').hidden = false; $('next').hidden = true; }
+      else {
+        const g = st.results.filter(r => !r.self), n = g.filter(r => r.correct).length;
+        setFeedback(g.every(r => r.correct) ? 'ok' : 'bad', `סיימתם את התרגיל: ${n} מתוך ${graded()} סעיפים נכונים.`);
+        finish();
+      }
     });
     $('choices').addEventListener('click', ev => {
       const b = ev.target.closest('button[data-level]');
@@ -296,14 +338,14 @@
         if (a.type === 'choice') return document.querySelector(`#ansRows select.ch[data-i="${i}"]`).value || null;
         const raw = document.querySelector(`#ansRows input[data-i="${i}"]`).value;
         if (a.type === 'binary') { const s = raw.trim(); return /^[01]+$/.test(s) ? s : null; }
-        const n = U.parseNumber(raw, a.type === 'angle');
+        const n = U.parseNumber(raw, a.type === 'angle' || a.signed);
         const pre = document.querySelector(`#ansRows select.pre[data-i="${i}"]`);
         return isNaN(n) ? null : n * (pre ? +pre.value : 1);
       });
       if (vals.some(v => v === null)) {
         const one = A.length === 1 && A[0].type === 'num';
         const notes = ['אפשר נקודה או פסיק עשרוני'];
-        if (A.some(a => a.type === 'angle')) notes.push('בזווית אפשר גם מינוס');
+        if (A.some(a => a.type === 'angle' || a.signed)) notes.push('אפשר גם מינוס');
         if (A.some(a => a.type === 'binary')) notes.push('במספר בינארי רק 0 ו-1');
         const sel = A.some(a => a.type === 'choice') ? ' ולבחור מהרשימה' : '';
         setFeedback('warn', `${one ? 'נא להקליד מספר בלבד' : 'נא למלא כל שדה' + sel} (${notes.join('; ')}). הניסיון לא נספר.`);
@@ -316,10 +358,11 @@
         let msg = `נכון! ${answerText}. `;
         if (last) {
           // ההמלצה לפי כל הסעיפים: כולם נכונים, ובאיזה ניסיון לכל היותר
-          const all = st.results.every(r => r.correct), maxAttempt = Math.max(attempt, ...st.results.map(r => r.attempt));
+          const g = st.results.filter(r => !r.self);
+          const all = g.every(r => r.correct), maxAttempt = Math.max(attempt, ...g.map(r => r.attempt));
           if (multi()) {
-            const n = st.results.filter(r => r.correct).length + 1;
-            msg += `סיימתם את התרגיל: ${n} מתוך ${st.parts.length} סעיפים נכונים. `;
+            const n = g.filter(r => r.correct).length + 1;
+            msg += `סיימתם את התרגיל: ${n} מתוך ${graded()} סעיפים נכונים. `;
           }
           if (!all) msg += 'מומלץ להישאר באותה רמה ולתרגל עוד.';
           else if (st.level >= E.MAX_LEVEL) msg += 'זו הרמה הגבוהה ביותר.';
@@ -347,8 +390,8 @@
         const suffix = cfg.failSuffix ? ' ' + cfg.failSuffix : '';
         let msg = `לא נכון.${detail} התשובה הנכונה: ${answerText}.${suffix}`;
         if (last && multi()) {
-          const n = st.results.filter(r => r.correct).length;
-          msg += ` סיימתם את התרגיל: ${n} מתוך ${st.parts.length} סעיפים נכונים.`;
+          const n = st.results.filter(r => !r.self && r.correct).length;
+          msg += ` סיימתם את התרגיל: ${n} מתוך ${graded()} סעיפים נכונים.`;
         }
         setFeedback('bad', msg);
         if (cfg.solution) $('solution').hidden = false;
