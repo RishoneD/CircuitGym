@@ -4,10 +4,28 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>תרגול מסננים (LP, HP)</title>
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="../assets/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
+<link rel="manifest" href="../manifest.webmanifest">
+<meta name="theme-color" content="#1d4ed8">
+<meta name="description" content="תרגול אינטראקטיבי בחשמל ואלקטרוניקה: מעגלים טוריים ומקביליים, זרמי חוגים, מעגלי AC, מגברי שרת ומסננים.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="CircuitGym">
+<meta property="og:locale" content="he_IL">
+<meta property="og:title" content="תרגול מסננים (LP, HP)">
+<meta property="og:description" content="תרגול אינטראקטיבי בחשמל ואלקטרוניקה: מעגלים טוריים ומקביליים, זרמי חוגים, מעגלי AC, מגברי שרת ומסננים.">
+<meta property="og:url" content="https://rishoned.github.io/CircuitGym/filters/">
+<meta property="og:image" content="https://rishoned.github.io/CircuitGym/assets/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="הלוגו של CircuitGym">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="stylesheet" href="../common/style.css">
 </head>
 <body>
 <header>
+  <a class="mark" href="../index.html" aria-label="CircuitGym - לדף הראשי"><img src="../assets/logo-symbol.svg" alt="" width="27" height="30"></a>
   <h1>תרגול מסננים (LP, HP)</h1>
   <span class="ver" dir="ltr" id="ver"></span>
   <a class="home" href="../index.html">→ לדף הראשי</a>
@@ -46,7 +64,7 @@
 (function (global) {
   'use strict';
 
-  const VERSION = 'v1.8';
+  const VERSION = 'v2.0';
   const MAX_LEVEL = 4;
   const MAX_ATTEMPTS = 3;
   const TOL = 0.01;               // סטייה יחסית מותרת (1%)
@@ -153,7 +171,10 @@
     ts.forEach((t, k) => { cand.push({ t, side: 1 }); if (k > 0) cand.push({ t, side: -1 }); });
     const good = rng.shuffle(cand).filter(q => Math.abs(r.at(q.t, q.side === -1 ? -1 : 1)) >= MIN_VO);
     // לפעמים רגע לפני/אחרי ולפעמים זמן רגיל
-    const plain = good.filter(q => q.side === 0), edge = good.filter(q => q.side !== 0), out = [];
+    // ב-LP המוצא רציף, ולכן "רגע לפני" ו"רגע אחרי" אותו מעבר הם אותו ערך: שואלים רק אחד מהם
+    const seenT = new Set();
+    const plain = good.filter(q => q.side === 0), out = [];
+    const edge = good.filter(q => q.side !== 0 && (ex.circ.ft !== 'LP' || (!seenT.has(q.t) && seenT.add(q.t))));
     for (let i = 0; i < count; i++) {
       const pool = (rng.next() < 0.5 && edge.length) || !plain.length ? edge : plain;
       const q = pool.shift();
@@ -272,22 +293,29 @@
   const B = x => `<bdi dir="ltr">${x}</bdi>`;
   const vv = x => B(fmtV(x)), tt = x => B(fmtT(x));
   // ערכי המוצא סביב כל מעבר, עד הקטע הנדרש
-  function transitionItems(ex, upto, li) {
+  // lastBeforeOnly: במעבר האחרון מציגים רק את הערך רגע לפני (הערך רגע אחרי עשוי להיות סעיף אחר)
+  function transitionItems(ex, upto, li, lastBeforeOnly) {
     const r = ex.resp, out = [];
     ex.wave.ts.forEach((t, k) => {
       if (k > upto) return;
       const a = ex.wave.v[k], b = ex.wave.v[k + 1];
+      if (k === upto && lastBeforeOnly) {
+        out.push(li(`רגע לפני ${B('t = ' + fmtT(t))} (סוף הקטע הקודם):`, `V_o(${t}⁻) = ${fmtV(r.minus[k])}`));
+        return;
+      }
       out.push(li(`ב-${B('t = ' + fmtT(t))} המבוא עובר מ-${vv(a)} ל-${vv(b)} (${B('ΔV_i = ' + fmtV(b - a)).replace('V_i', 'V<sub>i</sub>')}).`,
         `V_o(${t}⁻) = ${fmtV(r.minus[k])},   V_o(${t}⁺) = ${fmtV(r.plus[k])}`));
     });
     return out;
   }
-  function segFormula(ex, k, t) {
+  // הנוסחה בקטע k עד הזמן t (גם ב-t שהוא סוף הקטע: "רגע לפני" המעבר הבא)
+  function segFormula(ex, k, t, before) {
     const r = ex.resp, A = r.asym[k], a = r.plus[k], tk = ex.wave.ts[k], n = x => (x < 0 ? `(${numStr(x)})` : numStr(x));
+    const lhs = `V_o(${numStr(t)}${before ? '⁻' : ''})`, v = A + (a - A) * Math.exp(-(t - tk) / ex.circ.tau);
     const head = ex.circ.ft === 'LP'
-      ? `V_o(${numStr(t)}) = ${n(A)} + (${n(roundSig(a, 4))} − ${n(A)})·e^(−(${numStr(t)} − ${tk})/${numStr(ex.circ.tau)})`
-      : `V_o(${numStr(t)}) = ${n(roundSig(a, 4))}·e^(−(${numStr(t)} − ${tk})/${numStr(ex.circ.tau)})`;
-    return `${head} = ${fmtV(r.at(t))}`;
+      ? `${lhs} = ${n(A)} + (${n(roundSig(a, 4))} − ${n(A)})·e^(−(${numStr(t)} − ${tk})/${numStr(ex.circ.tau)})`
+      : `${lhs} = ${n(roundSig(a, 4))}·e^(−(${numStr(t)} − ${tk})/${numStr(ex.circ.tau)})`;
+    return `${head} = ${fmtV(v)}`;
   }
   function solutionHtml(ex, pi) {
     const part = ex.parts[pi], c = ex.circ, esc = global.Core.esc, symHtml = global.Core.symHtml;
@@ -311,8 +339,9 @@
       items = [li('קבוע הזמן:', tauLine(c)), rule];
       if (k < 0) items.push(li('לפני המעבר הראשון המעגל במצב יציב.', `V_o = ${fmtV(ex.resp.pre)}`));
       else {
-        items.push(...transitionItems(ex, q.side === -1 ? k + 1 : k, li));
+        items.push(...transitionItems(ex, k, li));
         if (q.side === 0) items.push(li(`בקטע שאחרי ${B('t = ' + fmtT(ts[k]))}:`, segFormula(ex, k, q.t)));
+        if (q.side === -1) items.push(li(`רגע לפני ${B('t = ' + fmtT(q.t))} המוצא עדיין בקטע שאחרי ${B('t = ' + fmtT(ts[k]))}:`, segFormula(ex, k, q.t, true)));
       }
     } else if (part.kind === 'rev') {
       const { x, t, k } = part.rq, A = ex.resp.asym[k], a = ex.resp.plus[k], tk = ex.wave.ts[k], n = v => (v < 0 ? `(${numStr(v)})` : numStr(v));
@@ -416,8 +445,12 @@
     return { svg: svgWrap(W, H, o.join('')), width: W, height: H };
   }
   // הגרף הנכון לבדיקה העצמית: V_o מודגש, V_i מקווקו, וערכי המוצא במעברים
-  function answerGraph(ex) {
+  // upto: אינדקס סעיף הסרטוט. ערכים מספריים מוצגים רק אם כבר נשאלו בסעיפים שלפניו
+  // (אחרת הגרף היה חושף תשובות של סעיפים מאוחרים יותר); הנקודות במעברים מוצגות בלי מספר.
+  function answerGraph(ex, upto) {
     const rg = ex.range, wave = ex.wave, r = ex.resp;
+    const revealed = (ex.parts || []).slice(0, upto || 0).filter(p => p.kind === 'vo').map(p => p.q);
+    const isRevealed = (t, side) => revealed.some(q => q.t === t && q.side === side);
     const vo = samples(r.at, wave, rg, false), vin = samples(null, wave, rg, true);
     const vr = vRange(vin.map(p => p[1]).concat(vo.map(p => p[1])));
     const g = graph(0, 0, W, 240, rg, vr, [{ pts: vin, cls: 'vin' }, { pts: vo, cls: 'sig' }], 'V [V]', []);
@@ -426,7 +459,10 @@
       const pts = Math.abs(r.minus[k] - r.plus[k]) < 1e-9 ? [r.plus[k]] : [r.minus[k], r.plus[k]];
       pts.forEach((v, j) => {
         o.push(`<circle class="mark" cx="${rd(g.X(t))}" cy="${rd(g.Y(v))}" r="3.5"/>`);
-        o.push(txt(g.X(t) + (j ? 6 : -6), g.Y(v) + (v >= 0 ? -6 : 14), numStr(Math.round(v * 100) / 100), j ? 'start' : 'end', ' class="lbl"'));
+        // j=0: רגע לפני (או ערך רציף), j=1: רגע אחרי
+        const side = pts.length === 1 ? null : j ? 1 : -1;
+        const shown = side === null ? isRevealed(t, -1) || isRevealed(t, 1) : isRevealed(t, side);
+        if (shown) o.push(txt(g.X(t) + (j ? 6 : -6), g.Y(v) + (v >= 0 ? -6 : 14), numStr(Math.round(v * 100) / 100), j ? 'start' : 'end', ' class="lbl"'));
       });
     });
     const legend = `<line class="sig" x1="${W - 150}" y1="12" x2="${W - 128}" y2="12"/>` + txt(W - 124, 16, sub('V', 'o'), 'start', ' font-size="12"') +
@@ -466,7 +502,7 @@
     ctypeHtml: ex => (ex.lv === 4 ? `מסנן <bdi dir="ltr">${ex.circ.fam}</bdi>` : `מסנן <bdi dir="ltr">${ex.circ.type}F</bdi>`),
     render: ex => E.Draw.render(ex),
     givens: ex => E.givensList(ex),
-    parts: ex => ex.parts.map(p => (p.selfcheck ? Object.assign({}, p, { selfcheck: Object.assign({}, p.selfcheck, { html: E.answerGraph(ex) }) }) : p)),
+    parts: ex => ex.parts.map((p, i) => (p.selfcheck ? Object.assign({}, p, { selfcheck: Object.assign({}, p.selfcheck, { html: E.answerGraph(ex, i) }) }) : p)),
     solution: { title: 'פתרון', html: (ex, pi) => E.solutionHtml(ex, pi), onCorrect: true },
     failSuffix: '',
   });

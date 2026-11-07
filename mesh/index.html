@@ -4,10 +4,28 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>תרגול זרמי חוגים</title>
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="../assets/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
+<link rel="manifest" href="../manifest.webmanifest">
+<meta name="theme-color" content="#1d4ed8">
+<meta name="description" content="תרגול אינטראקטיבי בחשמל ואלקטרוניקה: מעגלים טוריים ומקביליים, זרמי חוגים, מעגלי AC, מגברי שרת ומסננים.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="CircuitGym">
+<meta property="og:locale" content="he_IL">
+<meta property="og:title" content="תרגול זרמי חוגים">
+<meta property="og:description" content="תרגול אינטראקטיבי בחשמל ואלקטרוניקה: מעגלים טוריים ומקביליים, זרמי חוגים, מעגלי AC, מגברי שרת ומסננים.">
+<meta property="og:url" content="https://rishoned.github.io/CircuitGym/mesh/">
+<meta property="og:image" content="https://rishoned.github.io/CircuitGym/assets/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="הלוגו של CircuitGym">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="stylesheet" href="../common/style.css">
 </head>
 <body>
 <header>
+  <a class="mark" href="../index.html" aria-label="CircuitGym - לדף הראשי"><img src="../assets/logo-symbol.svg" alt="" width="27" height="30"></a>
   <h1>תרגול זרמי חוגים</h1>
   <span class="ver" dir="ltr" id="ver"></span>
   <a class="home" href="../index.html">→ לדף הראשי</a>
@@ -42,7 +60,7 @@
 (function (global) {
   'use strict';
 
-  const VERSION = 'v1.8';
+  const VERSION = 'v2.0';
   const MAX_LEVEL = 5;
   const MAX_ATTEMPTS = 3;
   const TOL = 0.01;        // סטייה יחסית מותרת (1%)
@@ -78,7 +96,7 @@
   const CUR = mant([1, 1.2, 1.5, 2, 2.4, 2.5, 3, 4, 5, 6, 8], -4, 0);
   const V_NICE = [1, 2, 3, 4, 5, 6, 8, 9, 10, 12, 15, 18, 20, 24, 30];
   const halfVolt = x => Math.abs(x * 2 - Math.round(x * 2)) < 1e-9;
-  function buildCircuit(rng, cfg, roundE) {
+  function buildCircuit(rng, cfg, roundE, minI = 0) {
     const slots = { Lb: [], Lv: [], Lt: [], Mv: [], Rb: [], Rv: [], Rt: [] };
     // נגדים: אחד בכל ענף לפחות (באמצע תמיד), השאר במקומות פנויים בענפים החיצוניים
     const pos = new Set(['Mv', rng.pick(OUTER.L), rng.pick(OUTER.R)]);
@@ -97,7 +115,7 @@
     const c = { slots, nE: cfg.nE, nR: cfg.nR };
     const Rb = b => sum(items(c, b).filter(x => x.k === 'R').map(x => x.R));
     const pickI = b => {
-      const ok = CUR.filter(i => i * Rb(b) >= 0.5 && i * Rb(b) <= 30);
+      const ok = CUR.filter(i => i >= minI && i * Rb(b) >= 0.5 && i * Rb(b) <= 30);
       return ok.length ? rng.pick(ok) * (rng.next() < 0.5 ? 1 : -1) : null;
     };
     const IL = pickI('L'), IR = pickI('R');
@@ -140,6 +158,9 @@
     const Is = ['L', 'M', 'R'].map(b => Math.abs(c.branch[b].I)), mx = Math.max(...Is);
     return mx <= 10 && Math.min(...Is) >= 1e-4 && Math.min(...Is) >= 0.05 * mx;
   }
+  // בלי תחיליות: אף זרם (בכל ענף) ואף הספק שנשאל לא קטן מ-MIN_PLAIN, כדי שלא יופיעו מספרים כמו 0.0002 A.
+  // עם תחיליות אין צורך (מוצג ב-mA, µA)
+  const MIN_PLAIN = 0.01;
 
   // ---------------- Questions ----------------
   // נקודה = { item, end:'in'|'out' } או { node:'T'|'B' }
@@ -264,8 +285,9 @@
     let tries = 0, c = null, built = null;
     for (let t = 0; t < MAX_TRIES && !built; t++) {
       tries++;
-      c = buildCircuit(rng, { nE: rng.pick(L.nE), nR: rng.pick(L.nR) }, t < MAX_TRIES / 2);
+      c = buildCircuit(rng, { nE: rng.pick(L.nE), nR: rng.pick(L.nR) }, t < MAX_TRIES / 2, opts.prefixes ? 0 : MIN_PLAIN);
       if (!c || !validCircuit(c)) continue;
+      if (!opts.prefixes && ['L', 'M', 'R'].some(x => Math.abs(c.branch[x].I) < MIN_PLAIN)) continue;
       let b = null;
       if (format === 'single') {
         const q = Q[kind](rng, c);
@@ -276,7 +298,8 @@
       }
       if (!b) continue;
       const vals = b.parts.flatMap(p => p.answers.filter(a => !a.dir).map(a => a.value)).concat(b.metered.map(x => c.branch[x].I));
-      if (vals.every(Units.isClean)) built = b;
+      const tiny = !opts.prefixes && b.parts.some(p => p.answers.some(a => !a.dir && a.value < MIN_PLAIN));
+      if (vals.every(Units.isClean) && !tiny) built = b;
     }
     if (!built) throw new Error('no clean exercise');
     // מדי זרם: מקום אקראי בענף (פס עליון או תחתון בענף חיצוני, אנכי באמצע). + בצד שבו הזרם נכנס.

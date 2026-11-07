@@ -152,7 +152,7 @@
 
   // ---------- גרסה וקישורים בכל האתר ----------
   {
-    const pages = { landing: '../index.html', ohm: '../ohm/index.html', mesh: 'index.html', ac: '../ac/index.html', filters: '../filters/index.html' }, vers = {};
+    const pages = { landing: '../index.html', ohm: '../ohm/index.html', mesh: 'index.html', ac: '../ac/index.html', opamp: '../opamp/index.html', filters: '../filters/index.html' }, vers = {};
     for (const [name, path] of Object.entries(pages)) {
       const url = new URL(path, location.href), src = await (await fetch(url, { cache: 'no-store' })).text();
       vers[name] = (/const VERSION = '(v\d+\.\d+)'/.exec(src) || [])[1];
@@ -167,7 +167,7 @@
     ok(new Set(Object.values(vers)).size === 1 && vers.mesh === E.VERSION, 'site versions match');
     const land = await (await fetch('../index.html', { cache: 'no-store' })).text();
     const order = [...land.matchAll(/class="card" href="([^"]+)"/g)].map(m => m[1]).join(' ');
-    ok(order === 'ohm/index.html mesh/index.html ac/index.html filters/index.html', 'landing card order: ' + order);
+    ok(order === 'ohm/index.html mesh/index.html ac/index.html opamp/index.html filters/index.html', 'landing card order: ' + order);
   }
 
   // ---------- ריצה המונית ----------
@@ -185,6 +185,11 @@
     const tag = `(seed ${seed}, L${level} ${ex.format})`, c = ex.circuit, Lc = E.LEVELS[level];
     const fs = fmtStats[`L${level} ${ex.format}`] || (fmtStats[`L${level} ${ex.format}`] = { n: 0, tries: 0, maxTries: 0 });
     fs.n++; fs.tries += ex.tries; fs.maxTries = Math.max(fs.maxTries, ex.tries);
+    // בלי תחיליות: אף זרם ענף ואף תשובה לא קטנים מ-0.01
+    if (!prefixes) {
+      ok(['L', 'M', 'R'].every(b => Math.abs(c.branch[b].I) >= 0.01), 'tiny branch current without prefixes ' + tag);
+      ok(ex.parts.every(p => p.answers.every(a => a.dir || a.value >= 0.01)), 'tiny answer without prefixes ' + tag);
+    }
     // מבנה לפי רמה
     ok(E.LEVEL_FORMATS[level].includes(ex.format), 'format for level ' + tag);
     ok(Lc.nE.includes(c.bats.length) && Lc.nR.includes(c.res.length), `circuit size E${c.bats.length} R${c.res.length} ` + tag);

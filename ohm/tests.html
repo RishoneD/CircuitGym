@@ -314,6 +314,11 @@
       ok(ex.level < 2 ? !['VT_IT', 'VT_k', 'Rx_ohm', 'Rx_T'].includes(ex.kind) : true, 'no inverse at level 1');
       ok(power || !['Pk', 'PT'].includes(ex.kind), 'no power when off');
       treeChecks(ex);
+      // בלי תחיליות: אף זרם/מתח (ואף הספק כשמופעל) בשום נגד או קבוצה לא קטן מ-0.01
+      if (!prefixes) {
+        const tiny = []; (function w(nd) { if (nd.I < 0.01 || nd.V < 0.01 || (power && nd.P < 0.01)) tiny.push(nd.sub); if (nd.children) nd.children.forEach(w); })(ex.circuit.root);
+        ok(!tiny.length, `tiny value without prefixes at ${tiny.join(',')} (seed ${seed})`);
+      }
       if (ex.format !== 'single') { multiChecks(ex, level, power, prefixes); drawChecks(ex, dstats); continue; }
       ok(level === 1, 'single question only at level 1');
       let v;

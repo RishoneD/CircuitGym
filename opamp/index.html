@@ -1,0 +1,972 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>תרגול מגברי שרת</title>
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="../assets/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
+<link rel="manifest" href="../manifest.webmanifest">
+<meta name="theme-color" content="#1d4ed8">
+<meta name="description" content="תרגול אינטראקטיבי בחשמל ואלקטרוניקה: מעגלים טוריים ומקביליים, זרמי חוגים, מעגלי AC, מגברי שרת ומסננים.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="CircuitGym">
+<meta property="og:locale" content="he_IL">
+<meta property="og:title" content="תרגול מגברי שרת">
+<meta property="og:description" content="תרגול אינטראקטיבי בחשמל ואלקטרוניקה: מעגלים טוריים ומקביליים, זרמי חוגים, מעגלי AC, מגברי שרת ומסננים.">
+<meta property="og:url" content="https://rishoned.github.io/CircuitGym/opamp/">
+<meta property="og:image" content="https://rishoned.github.io/CircuitGym/assets/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="הלוגו של CircuitGym">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="../common/style.css">
+</head>
+<body>
+<header>
+  <a class="mark" href="../index.html" aria-label="CircuitGym - לדף הראשי"><img src="../assets/logo-symbol.svg" alt="" width="27" height="30"></a>
+  <h1>תרגול מגברי שרת</h1>
+  <span class="ver" dir="ltr" id="ver"></span>
+  <a class="home" href="../index.html">→ לדף הראשי</a>
+</header>
+
+<main>
+  <section id="setup" class="card">
+    <h2>הגדרות תרגול</h2>
+    <fieldset>
+      <legend>סוג התרגול</legend>
+      <label class="opt"><input type="radio" name="mode" id="mBasic" value="basic" checked> תרגול בסיסי</label>
+      <label class="opt"><input type="radio" name="mode" id="mAdv" value="adv"> תרגול מתקדם</label>
+    </fieldset>
+    <label class="switch" id="cmpBox"><input type="checkbox" id="cmp"> כולל משווה (מגבר בלי משוב, מרמה 3)</label>
+    <fieldset id="typesBox">
+      <legend>סוג המגבר (אפשר לבחור כמה)</legend>
+      <label class="opt"><input type="checkbox" id="tINV" checked> מגבר מהפך</label>
+      <label class="opt"><input type="checkbox" id="tNINV" checked> מגבר עוקב מופע</label>
+      <label class="opt"><input type="checkbox" id="tBUF" checked> חוצץ (BUFFER)</label>
+    </fieldset>
+    <label class="row">רמת קושי התחלתית:
+      <select id="level"></select>
+    </label>
+    <p id="setNote" class="note"></p>
+    <button id="start" class="primary">התחלה</button>
+  </section>
+  <section id="play" class="card" hidden></section>
+</main>
+
+<footer>נוצר על ידי ראשון דיבקר בעזרת Claude · <span dir="ltr" id="ver2"></span></footer>
+
+<script src="../common/core.js"></script>
+<!-- ======================= מנוע (ללא DOM) ======================= -->
+<script id="engine">
+(function (global) {
+  'use strict';
+
+  const VERSION = 'v2.0';
+  const { makeRng, randomSeed } = global.Core;
+  const Units = global.Core.makeUnits({ prefixes: ['M', 'k', '', 'm', 'µ'], tol: 0.01 });
+  const { numStr } = Units;
+
+  /* ---------------- מודל המעגל ----------------
+   * מקור (src):  { k:'term', label }            הדק מבוא עם שם (V₁) או ערך ("3 V")
+   *              { k:'gnd' }                    חיבור לאדמה
+   *              { k:'bat', name, V, plusTop }  סוללה לאדמה
+   *              { k:'div', V, Rt, Rb }         מחלק מתח ממתח קבוע: Rt למעלה, Rb לאדמה
+   *              שלב (stage) קודם
+   * שלב: { k:'stage', name?, vcc?, f: R|'wire'|null, neg:[{R?,src}], pos:[{R?,src}], ng: R|null, pg: R|null,
+   *        marks: { N, P, M, out, in0.. } (תוויות נקודות), outLabel? }
+   *   neg לא ריק → משפחה מהפכת (− למעלה, משוב מעל). אחרת → משפחה לא מהפכת (+ למעלה, משוב מתחת).
+   * נגד: { name: 'R_1', value: 1000 }
+   */
+
+  // ---------------- Draw (SVG) ----------------
+  const rd = x => Math.round(x * 10) / 10;
+  const ln = (x1, y1, x2, y2, cls) => `<line${cls ? ` class="${cls}"` : ''} x1="${rd(x1)}" y1="${rd(y1)}" x2="${rd(x2)}" y2="${rd(y2)}"/>`;
+  const txt = (x, y, s, anchor, extra) => `<text x="${rd(x)}" y="${rd(y)}" text-anchor="${anchor || 'middle'}"${extra || ''}>${s}</text>`;
+  // X_sub ← טקסט SVG עם כתב תחתון
+  const lab = s => String(s).replace(/([A-Za-z])_([0-9A-Za-z]+)/g, '$1<tspan dy="4" font-size="11">$2</tspan><tspan dy="-4">​</tspan>').replace(/-(?=\d)/g, '−');
+  const tw = s => String(s).replace(/_/g, '').length * 8;   // רוחב משוער של טקסט
+  const fmtR = r => (r >= 1000 ? numStr(r / 1000) + ' kΩ' : numStr(r) + ' Ω');
+  const fmtV = v => numStr(v).replace('-', '−') + ' V';
+  const STYLE = `<style>.oa line,.oa polyline,.oa path,.oa polygon{stroke:#1f2937;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}` +
+    `.oa text{fill:#1f2937}.oa .fill{fill:#1f2937;stroke:none}.oa .term{fill:#fff;stroke:#1f2937;stroke-width:1.6}` +
+    `.oa .amp{fill:#fff}.oa .pt{fill:#d9480f;font-weight:bold}.oa .cur{stroke:#1f2937}.oa .sm{font-size:12px}</style>`;
+  const svgWrap = (w, h, body) => `<svg xmlns="http://www.w3.org/2000/svg" class="oa" viewBox="0 0 ${rd(w)} ${rd(h)}" width="${rd(w)}" height="${rd(h)}" ` +
+    `direction="ltr" font-family="Arial, Helvetica, sans-serif" font-size="14" role="img">${STYLE}<rect width="100%" height="100%" fill="#fff"/>${body}</svg>`;
+  const g = (x, y, body) => `<g transform="translate(${rd(x)},${rd(y)})">${body}</g>`;
+  const dot = (x, y) => `<circle class="fill" cx="${rd(x)}" cy="${rd(y)}" r="3.5"/>`;
+  const term = (x, y) => `<circle class="term" cx="${rd(x)}" cy="${rd(y)}" r="4"/>`;
+  const ground = (x, y) => ln(x, y, x, y + 10) + ln(x - 12, y + 10, x + 12, y + 10) + ln(x - 7, y + 15, x + 7, y + 15) + ln(x - 2.5, y + 20, x + 2.5, y + 20);
+  const arrowHead = (x, y, dir) => {   // ראש חץ שקודקודו ב-(x,y)
+    const d = { up: `l-5,10 h10 z`, down: `l-5,-10 h10 z`, right: `l-10,-5 v10 z`, left: `l10,-5 v10 z` }[dir];
+    return `<path class="fill" d="M${rd(x)},${rd(y)} ${d}"/>`;
+  };
+  // נגד אופקי בין x1 ל-x2: שם מעל, ערך מתחת
+  function resH(x1, x2, y, r) {
+    const cx = (x1 + x2) / 2, pts = [[cx - 22, y]];
+    for (let i = 0; i < 6; i++) pts.push([cx - 22 + 44 * (2 * i + 1) / 12, y + (i % 2 ? 7 : -7)]);
+    pts.push([cx + 22, y]);
+    return ln(x1, y, cx - 22, y) + ln(cx + 22, y, x2, y) + `<polyline points="${pts.map(p => rd(p[0]) + ',' + rd(p[1])).join(' ')}"/>` +
+      txt(cx, y - 14, lab(r.name)) + txt(cx, y + 25, fmtR(r.value));
+  }
+  // נגד אנכי: side = 'left' | 'right' (שם וערך זה מעל זה בצד הזה)
+  function resV(x, y1, y2, r, side) {
+    const cy = (y1 + y2) / 2, pts = [[x, cy - 22]];
+    for (let i = 0; i < 6; i++) pts.push([x + (i % 2 ? 7 : -7), cy - 22 + 44 * (2 * i + 1) / 12]);
+    pts.push([x, cy + 22]);
+    const dx = side === 'left' ? -14 : 14, an = side === 'left' ? 'end' : 'start';
+    return ln(x, y1, x, cy - 22) + ln(x, cy + 22, x, y2) + `<polyline points="${pts.map(p => rd(p[0]) + ',' + rd(p[1])).join(' ')}"/>` +
+      txt(x + dx, r.value == null ? cy + 5 : cy - 3, lab(r.name), an) + (r.value == null ? '' : txt(x + dx, cy + 14, fmtR(r.value), an));
+  }
+  const ptLabel = (x, y, s, an) => txt(x, y, lab(s), an || 'middle', ' class="pt"');
+
+  // ---- מקורות: הציור יחסי לנקודת החיבור (0,0), ומשתרע שמאלה ----
+  function planSource(s) {
+    if (s.k === 'term') {
+      const w = 40 + tw(s.label);
+      return { w, up: 14, down: 10, svg: ln(-28, 0, 0, 0) + term(-32, 0) + txt(-42, 5, lab(s.label), 'end') };
+    }
+    if (s.k === 'gnd') return { w: 30, up: 6, down: 32, svg: ln(-18, 0, 0, 0) + ground(-18, 0) };
+    if (s.k === 'bat') {
+      const x = -26, yt = 26, yb = 40;
+      const [lt, lb] = s.plusTop ? [14, 7] : [7, 14];
+      const svg = ln(x, 0, 0, 0) + ln(x, 0, x, yt) + ln(x - lt, yt, x + lt, yt) + ln(x - lb, yb, x + lb, yb) + ln(x, yb, x, 58) + ground(x, 58) +
+        txt(x + 18, s.plusTop ? yt + 3 : yb + 6, '+', 'start', ' class="sm"') +
+        txt(x - 20, yt + 4, lab(s.name), 'end') + txt(x - 20, yt + 20, fmtV(s.V), 'end');
+      return { w: 46 + Math.max(tw(s.name), tw(fmtV(s.V))), up: 6, down: 82, svg };
+    }
+    if (s.k === 'div') {
+      const x = -24;
+      const svg = ln(x, 0, 0, 0) + dot(x, 0) + resV(x, -86, 0, s.Rt, 'left') + ln(x, -86, x, -100) + arrowHead(x, -106, 'up') +
+        txt(x, -112, fmtV(s.V)) + resV(x, 0, 86, s.Rb, 'left') + ground(x, 86) + (s.mark ? ptLabel(x + 6, -8, s.mark, 'start') : '');
+      return { w: 40 + Math.max(tw(s.Rt.name), tw(fmtR(s.Rt.value))), up: 126, down: 110, svg };
+    }
+    return planStage(s);
+  }
+
+  // ---- שלב: קואורדינטות יחסיות לראשית המגבר O (אמצע הצלע השמאלית של המשולש); מוצא ב-(130,0), מבואות ב-x = -130 ----
+  const PORT = -130, OUT = 130, ROW = 74;
+  function stageBody(st) {
+    const o = [], ports = [], inv = st.neg.length > 0, M = st.marks || {};
+    let up = 52, down = 52;
+    // המשולש, סימני המבואות ושם המגבר
+    o.push(`<polygon class="amp" points="0,-40 0,40 70,0"/>`);
+    o.push(txt(9, -15, inv ? '−' : '+', 'middle', ' font-size="16"'), txt(9, 26, inv ? '+' : '−', 'middle', ' font-size="16"'));
+    if (st.name) o.push(txt(32, 5, lab(st.name), 'middle', ' font-size="13"'));
+    // ספק
+    if (st.vcc) {
+      o.push(ln(25, -26, 25, -48), arrowHead(25, -54, 'up'), txt(31, -44, '+' + st.vcc + ' V', 'start', ' class="sm"'));
+      o.push(ln(25, 26, 25, 48), arrowHead(25, 54, 'down'), txt(31, 54, '−' + st.vcc + ' V', 'start', ' class="sm"'));
+      up = Math.max(up, 58); down = Math.max(down, 60);
+    }
+    // מוצא
+    o.push(ln(70, 0, OUT, 0));
+    if (inv) {
+      // − למעלה: צומת N, מבואות בשורות כלפי מטה
+      const xN = -40, rows = st.neg.map((_, k) => -20 + ROW * k);
+      o.push(ln(xN, -20, 0, -20));
+      st.neg.forEach((e, k) => {
+        if (e.R) o.push(resH(PORT, xN, rows[k], e.R)); else o.push(ln(PORT, rows[k], xN, rows[k]));
+        ports.push({ y: rows[k], src: e.src, key: 'n' + k });
+        if (k > 0 && k < rows.length - 1) o.push(dot(xN, rows[k]));
+      });
+      if (rows.length > 1) o.push(ln(xN, -20, xN, rows[rows.length - 1]));
+      if (st.f) {
+        const yF = st.vcc ? -96 : -70;   // מעל חץ הספק
+        o.push(ln(xN, -20, xN, yF), ln(100, yF, 100, 0), dot(100, 0));
+        o.push(st.f === 'wire' ? ln(xN, yF, 100, yF) : resH(xN, 100, yF, st.f));
+        up = Math.max(up, -yF + 22);
+      }
+      if (st.f || rows.length > 1) o.push(dot(xN, -20));
+      if (M.N) o.push(ptLabel(xN - 6, -27, M.N, 'end'));
+      // + למטה
+      const xP = -14;
+      o.push(ln(0, 20, xP, 20));
+      const onlyGnd = st.pos.length === 1 && !st.pos[0].R && st.pos[0].src.k === 'gnd' && !st.pg;
+      down = Math.max(down, rows[rows.length - 1] + 34);
+      if (onlyGnd) { o.push(ln(xP, 20, xP, 34), ground(xP, 34)); down = Math.max(down, 60); }
+      else {
+        const yP = Math.max(rows[rows.length - 1] + ROW, 60), prow = st.pos.map((_, j) => yP + ROW * j);
+        o.push(ln(xP, 20, xP, prow[prow.length - 1]));
+        st.pos.forEach((e, j) => {
+          if (e.R) o.push(resH(PORT, xP, prow[j], e.R)); else o.push(ln(PORT, prow[j], xP, prow[j]));
+          ports.push({ y: prow[j], src: e.src, key: 'p' + j });
+        });
+        let yEnd = prow[prow.length - 1];
+        if (st.pg) { o.push(dot(xP, yEnd), resV(xP, yEnd, yEnd + 80, st.pg, 'right'), ground(xP, yEnd + 80)); yEnd += 104; }
+        else yEnd += 30;
+        if (M.P) o.push(ptLabel(xP + 6, prow[0] - 8, M.P, 'start'));
+        down = Math.max(down, yEnd);
+      }
+    } else {
+      // + למעלה: צומת P, מבואות בשורות כלפי מעלה
+      const xP = -40, rows = st.pos.map((_, k) => -20 - ROW * k);
+      o.push(ln(xP, -20, 0, -20));
+      st.pos.forEach((e, k) => {
+        if (e.R) o.push(resH(PORT, xP, rows[k], e.R)); else o.push(ln(PORT, rows[k], xP, rows[k]));
+        ports.push({ y: rows[k], src: e.src, key: 'p' + k });
+      });
+      if (rows.length > 1) { o.push(ln(xP, rows[rows.length - 1], xP, -20), dot(xP, -20)); rows.slice(1, -1).forEach(y => o.push(dot(xP, y))); }
+      up = Math.max(up, 20 - rows[rows.length - 1] + 20);
+      if (M.P) o.push(ptLabel(xP - 6, -27, M.P, 'end'));
+      // − למטה: משוב מתחת
+      const xM = -14, yF = st.vcc ? 92 : 78;   // מתחת לחץ הספק
+      o.push(ln(0, 20, xM, 20));
+      if (st.f) {
+        o.push(ln(xM, 20, xM, yF), ln(100, yF, 100, 0), dot(100, 0));
+        o.push(st.f === 'wire' ? ln(xM, yF, 100, yF) : resH(xM, 100, yF, st.f));
+        down = Math.max(down, yF + (st.f === 'wire' ? 12 : 34));
+      }
+      if (st.ng) {
+        if (!st.f) o.push(ln(xM, 20, xM, yF));
+        o.push(dot(xM, yF), resV(xM, yF, yF + 80, st.ng, 'left'), ground(xM, yF + 80));
+        down = Math.max(down, yF + 104);
+      }
+      if (M.M) o.push(ptLabel(xM - 6, yF - 8, M.M, 'end'));
+    }
+    if (M.out) o.push(ptLabel(106, -8, M.out, 'start'));
+    if (st.outLabel) o.push(txt(116, -8, lab(st.outLabel), 'middle'));
+    ports.forEach(p => { if (M['in_' + p.key]) o.push(ptLabel(PORT + 4, p.y - 8, M['in_' + p.key], 'start')); });
+    return { svg: o.join(''), ports, up, down };
+  }
+  // שלב עם המבואות שלו: מקורות או שלבים קודמים משמאל לכל מבוא. מבוא שהעץ שלו גבוה מדי יורד, עם תעלה אנכית.
+  function planStage(st) {
+    const b = stageBody(st), o = [b.svg];
+    const kids = b.ports.slice().sort((p, q) => p.y - q.y).map(p => ({ p, c: planSource(p.src) }));
+    let floor = -Infinity;
+    kids.forEach(k => { k.y = Math.max(k.p.y, floor + k.c.up + 14); floor = k.y + k.c.down; });
+    const moved = kids.filter(k => k.y !== k.p.y), R = moved.length;
+    let up = b.up, down = b.down, wIn = 0;
+    kids.forEach(k => {
+      const r = moved.indexOf(k);
+      let x = PORT;
+      if (r >= 0) {
+        const xc = PORT - 10 * (R - r);
+        x = PORT - 10 * R - 12;
+        o.push(ln(x, k.y, xc, k.y), ln(xc, k.y, xc, k.p.y), ln(xc, k.p.y, PORT, k.p.y));
+      }
+      o.push(g(x, k.y, k.c.svg));
+      up = Math.max(up, k.c.up - k.y);
+      down = Math.max(down, k.y + k.c.down);
+      wIn = Math.max(wIn, PORT - x + k.c.w);
+    });
+    // יחסית לנקודת המוצא (OUT,0)
+    return { w: OUT - PORT + wIn, up, down, svg: g(-OUT, 0, o.join('')) };
+  }
+  // ציור מלא: השלב האחרון ומוצא המעגל (הדק V_o, אופציונלית R_L ו-I_o)
+  function render(c) {
+    const p = planStage(c.stage), o = [p.svg];
+    let right = 70, down = p.down;
+    o.push(ln(0, 0, 54, 0), term(58, 0), txt(68, 5, lab(c.outName || 'V_o'), 'start'));
+    if (c.RL) { o.push(dot(36, 0), resV(36, 0, 80, c.RL, 'right'), ground(36, 80)); down = Math.max(down, 104); }
+    // I_o: ממש במוצא המגבר, לפני הצומת של המשוב (קודקוד המשולש ב-x = -60, הצומת ב-x = -30)
+    if (c.Io) { o.push(arrowHead(-38, 0, 'right'), txt(-46, -10, lab('I_o'))); }
+    right += tw(c.outName || 'V_o') + 10;
+    const W = p.w + right + 20, H = p.up + down + 20, x0 = p.w + 10, y0 = p.up + 10;
+    return { svg: svgWrap(W, H, g(x0, y0, o.join(''))), width: W, height: H };
+  }
+
+  // ---------------- תרגול בסיסי: שלב אחד (מהפך, עוקב מופע, חוצץ) ----------------
+  const K = 1000;
+  const MAX_ATTEMPTS = 3, TOL = 0.01;
+  const R1S = [1, 2, 4, 5, 10].map(x => x * K);
+  const RATIO = [0.5, 1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10];
+  const R_OK = r => r >= 500 && r <= 100 * K && Units.isClean(r);
+  const VIS = [0.5, 1, 1.5, 2, 2.5, 3, 4, 5];
+  const VCCS = [10, 12, 15];
+  const TYPE_NAMES = { INV: 'מגבר מהפך', NINV: 'מגבר עוקב מופע', BUF: 'חוצץ (BUFFER)' };
+  const BUF_PROPS = 'חוצץ (עוקב מתח): ההגבר שלו 1 (V_o = V_i), התנגדות המבוא שלו גבוהה מאוד (כמעט לא נכנס אליו זרם, ולכן הוא לא מעמיס על המקור), והתנגדות המוצא שלו נמוכה מאוד (הוא מספק את זרם העומס). משמש להפרדה בין מקור לעומס.';
+  const clean = x => Math.abs(x) < 1e-12 || Units.isClean(x);
+  const rnd = x => Math.round(x * 1e9) / 1e9;
+  const sat = (x, vcc) => (vcc && Math.abs(x) > vcc ? Math.sign(x) * vcc : x);
+  // הצגה בפתרון
+  const n = x => (x < 0 ? '(' + numStr(rnd(x)).replace('-', '−') + ')' : numStr(rnd(x)));
+  const nV = x => numStr(rnd(x)).replace('-', '−') + ' V';
+  const fI = x => Units.format(Math.abs(x) < 1e-12 ? 0 : x, 'A', true, 4).replace('-', '−');
+  const fR = r => Units.format(r, 'Ω', true, 4);
+  const gainOf = m => (m.type === 'INV' ? -m.Rf / m.R1 : m.type === 'NINV' ? 1 + m.Rf / m.R1 : 1);
+  const R = (k, v) => ({ name: 'R_' + k, value: v });
+
+  function pickGain(rng, type) {
+    for (;;) {
+      const R1 = rng.pick(R1S), Rf = rnd(R1 * rng.pick(RATIO));
+      if (R_OK(Rf)) return { R1, Rf };
+    }
+  }
+  // מקור המבוא: הדק (V_i), סוללה, או מחלק מתח. Vi = המתח האפקטיבי בנקודה A
+  function pickSource(rng, kinds) {
+    const k = rng.pick(kinds);
+    if (k === 'term') { const Vi = rng.pick(VIS) * (rng.next() < 0.5 ? -1 : 1); return { k, Vi }; }
+    if (k === 'bat') { const V = rng.pick(VIS), plusTop = rng.next() < 0.6; return { k, V, plusTop, Vi: plusTop ? V : -V }; }
+    for (;;) {
+      const Vs = rng.pick([2, 3, 5, 6, 9, 10, 12]) * (rng.next() < 0.75 ? 1 : -1), Rt = rng.pick([1, 2, 3, 4, 5, 6, 10]) * K, Rb = rng.pick([1, 2, 3, 4, 5, 6, 10]) * K;
+      const Vi = rnd(Vs * Rb / (Rt + Rb));
+      if (Math.abs(Vi) >= 0.5 && clean(Vi)) return { k, Vs, Rt, Rb, Vi };
+    }
+  }
+  function srcObj(m) {
+    const s = m.src;
+    if (s.k === 'term') return { k: 'term', label: 'V_i' };
+    if (s.k === 'bat') return { k: 'bat', name: 'V_i', V: s.V, plusTop: s.plusTop };
+    return { k: 'div', V: s.Vs, Rt: R(3, s.Rt), Rb: R(4, s.Rb), mark: 'A' };
+  }
+  // ציור: A = נקודת המבוא, B = צומת המבוא המהפך, C = המוצא
+  function circuitOf(m) {
+    const base = { k: 'stage', neg: [], pos: [], ng: null, pg: null, f: null, vcc: m.vcc };
+    const src = srcObj(m), aMark = m.src.k === 'div' ? null : 'A';
+    if (m.type === 'INV') return { stage: Object.assign(base, { neg: [{ R: R(1, m.R1), src }], pos: [{ src: { k: 'gnd' } }], f: R(2, m.Rf), marks: { in_n0: aMark, N: 'B', out: 'C' } }) };
+    if (m.type === 'NINV') return { stage: Object.assign(base, { pos: [{ src }], ng: R(1, m.R1), f: R(2, m.Rf), marks: { in_p0: aMark, M: 'B', out: 'C' } }) };
+    return { stage: Object.assign(base, { pos: [{ src }], f: 'wire', marks: { in_p0: aMark } }), RL: m.RL ? { name: 'R_L', value: m.RL } : null, Io: !!m.RL };
+  }
+
+  // ---- סעיפים. כל סעיף: { kind, text, answers, sol: [[note, eq], ...] } ----
+  const numA = (sym, value, unit, extra) => Object.assign({ type: 'num', sym, value: rnd(value), unit, prefix: unit !== 'V' && unit !== '' }, extra || {});
+  const dirA = (from, to, value, toLabel) => ({ type: 'choice', label: 'כיוון הזרם', short: 'הכיוון', value,
+    options: [{ value: 'XY', label: `מ-${from} ${toLabel ? toLabel.to : 'ל-' + to}` }, { value: 'YX', label: toLabel ? toLabel.back : `מ-${to} ל-${from}` }] });
+  const gainLine = m => (m.type === 'INV' ? ['במגבר מהפך:', `A_v = −R_2 / R_1 = −${fR(m.Rf)} / ${fR(m.R1)} = ${numStr(rnd(gainOf(m)))}`]
+    : m.type === 'NINV' ? ['במגבר עוקב מופע:', `A_v = 1 + R_2 / R_1 = 1 + ${fR(m.Rf)} / ${fR(m.R1)} = ${numStr(rnd(gainOf(m)))}`]
+    : ['בחוצץ (עוקב מתח) ההגבר הוא 1:', 'A_v = 1']);
+  const viLine = m => (m.src.k === 'div'
+    ? ['המתח בנקודה A נקבע במחלק המתח (לא נכנס זרם למבוא המגבר, ולכן המחלק לא מועמס):', `V_A = V · R_4 / (R_3 + R_4) = ${nV(m.src.Vs)} · ${fR(m.src.Rb)} / (${fR(m.src.Rt)} + ${fR(m.src.Rb)}) = ${nV(m.src.Vi)}`]
+    : null);
+  const vinSym = m => (m.src.k === 'div' ? 'V_A' : 'V_i');
+  const P = {
+    gain: m => ({ kind: 'gain', text: 'חשבו את ההגבר A_v של המגבר.', answers: [numA('A_v', gainOf(m), '', { signed: true })], sol: [gainLine(m)] }),
+    vo: m => {
+      const raw = gainOf(m) * m.src.Vi, vo = sat(raw, m.vcc), sol = [];
+      if (viLine(m)) sol.push(viLine(m));
+      sol.push(gainLine(m));
+      sol.push([null, `V_o = A_v · ${vinSym(m)} = ${n(gainOf(m))} · ${n(m.src.Vi)} = ${nV(raw)}`]);
+      return { kind: 'vo', text: 'חשבו את מתח המוצא V_o.', answers: [numA('V_o', vo, 'V', { signed: true })], sol };
+    },
+    vA: m => ({ kind: 'vA', text: 'חשבו את המתח בנקודה A.', answers: [numA('V_A', m.src.Vi, 'V', { signed: true })], sol: [viLine(m)] }),
+    vB: m => {
+      const v = m.type === 'INV' ? 0 : m.src.Vi;
+      const sol = m.type === 'INV'
+        ? [['המבוא הלא מהפך (+) מחובר לאדמה. במגבר אידיאלי עם משוב שלילי המתחים בשני המבואות שווים (אדמה מדומה):', 'V_B = V_− = V_+ = 0 V']]
+        : [['במגבר אידיאלי עם משוב שלילי המתחים בשני המבואות שווים:', `V_B = V_− = V_+ = ${vinSym(m)} = ${nV(v)}`]];
+      return { kind: 'vB', text: 'חשבו את המתח בנקודה B.', answers: [numA('V_B', v, 'V', { signed: true })], sol };
+    },
+    iR1: m => {
+      if (m.type === 'INV') {
+        const i = m.src.Vi / m.R1;
+        return { kind: 'iR1', text: 'חשבו את הזרם דרך הנגד R_1 וקבעו את כיוונו (מ-A ל-B או מ-B ל-A).',
+          answers: [numA('I_R1', Math.abs(i), 'A'), dirA('A', 'B', i > 0 ? 'XY' : 'YX')],
+          sol: [['V_B = 0 (אדמה מדומה). לפי חוק אוהם על R_1:', `I_R1 = (V_A − V_B) / R_1 = (${n(m.src.Vi)} − 0) / ${fR(m.R1)} = ${fI(i)}`],
+            [i > 0 ? 'הזרם חיובי, ולכן הוא זורם מ-A ל-B (מהמתח הגבוה לנמוך).' : 'הזרם שלילי, ולכן הוא זורם מ-B ל-A (מהמתח הגבוה לנמוך).', null]] };
+      }
+      const i = m.src.Vi / m.R1;
+      return { kind: 'iR1', text: 'חשבו את הזרם דרך הנגד R_1 וקבעו את כיוונו (מ-B לאדמה או מהאדמה ל-B).',
+        answers: [numA('I_R1', Math.abs(i), 'A'), dirA('B', 'G', i > 0 ? 'XY' : 'YX', { to: 'לאדמה', back: 'מהאדמה ל-B' })],
+        sol: [['V_B = V_+ (שני המבואות באותו מתח). R_1 מחובר בין B לאדמה:', `I_R1 = V_B / R_1 = ${n(m.src.Vi)} / ${fR(m.R1)} = ${fI(i)}`],
+          [i > 0 ? 'V_B חיובי, ולכן הזרם זורם מ-B לאדמה.' : 'V_B שלילי, ולכן הזרם זורם מהאדמה ל-B.', null]] };
+    },
+    iRf: m => {
+      const vo = gainOf(m) * m.src.Vi, vB = m.type === 'INV' ? 0 : m.src.Vi, i = (vB - vo) / m.Rf;   // חיובי: מ-B ל-C
+      return { kind: 'iRf', text: 'חשבו את הזרם דרך הנגד R_2 וקבעו את כיוונו (מ-B ל-C או מ-C ל-B).',
+        answers: [numA('I_R2', Math.abs(i), 'A'), dirA('B', 'C', i > 0 ? 'XY' : 'YX')],
+        sol: [['V_B (המתח במבוא המהפך) ו-V_C = V_o:', `V_B = ${nV(vB)},   V_o = A_v · ${vinSym(m)} = ${n(gainOf(m))} · ${n(m.src.Vi)} = ${nV(vo)}`],
+          ['לפי חוק אוהם על R_2:', `I_R2 = (V_B − V_C) / R_2 = (${n(vB)} − ${n(vo)}) / ${fR(m.Rf)} = ${fI(i)}`],
+          [i > 0 ? 'הזרם חיובי, ולכן הוא זורם מ-B ל-C.' : 'הזרם שלילי, ולכן הוא זורם מ-C ל-B.', null]] };
+    },
+    role: () => ({ kind: 'role', text: 'מהו תפקיד המגבר במעגל?',
+      answers: [{ type: 'choice', label: 'תפקיד המגבר', short: 'התפקיד', value: 'BUF', options: Object.keys(TYPE_NAMES).map(k => ({ value: k, label: TYPE_NAMES[k] })) }],
+      sol: [[BUF_PROPS, null]] }),
+    io: m => {
+      const i = m.src.Vi / m.RL;
+      return { kind: 'io', text: 'חשבו את הזרם I_o במוצא המגבר.', answers: [numA('I_o', i, 'A', { signed: true })],
+        sol: [['בחוצץ V_o = V_i. לא נכנס זרם למבוא המהפך, ולכן כל זרם המוצא עובר ב-R_L:', `I_o = V_o / R_L = ${n(m.src.Vi)} / ${fR(m.RL)} = ${fI(i)}`]] };
+    },
+  };
+  // רמה 3: אחרי שינוי (אולי רוויה)
+  function changePart(rng, m) {
+    const A = gainOf(m);
+    if (m.src.k === 'div') {   // מחליפים את R_2
+      for (let t = 0; t < 50; t++) {
+        const Rf2 = rnd(m.R1 * rng.pick(RATIO.concat([12, 15, 20])));
+        if (Rf2 === m.Rf || !R_OK(Rf2)) continue;
+        const m2 = Object.assign({}, m, { Rf: Rf2 }), raw = gainOf(m2) * m.src.Vi, vo = sat(raw, m.vcc);
+        if (!clean(vo)) continue;
+        if ((rng.next() < 0.7) !== (Math.abs(raw) > m.vcc)) continue;
+        return { kind: 'chg', change: { Rf: Rf2 }, text: `מחליפים את הנגד R_2 בנגד של ${fR(Rf2)}. חשבו את מתח המוצא V_o.`, answers: [numA('V_o', vo, 'V', { signed: true })],
+          sol: [gainLine(m2), ...satSol(raw, m.vcc, `${n(gainOf(m2))} · ${n(m.src.Vi)}`)] };
+      }
+      return null;
+    }
+    for (let t = 0; t < 50; t++) {
+      const v2 = rng.pick(VIS.concat([6, 8, 10])) * (rng.next() < 0.5 ? -1 : 1);
+      if (v2 === m.src.Vi) continue;
+      const raw = A * v2, vo = sat(raw, m.vcc);
+      if ((rng.next() < 0.7) !== (Math.abs(raw) > m.vcc)) continue;
+      const what = m.src.k === 'bat' ? `מחליפים את הסוללה בסוללה של ${nV(Math.abs(v2))}${v2 * m.src.Vi < 0 ? ', ומחברים אותה בקוטביות הפוכה' : ''}` : `משנים את מתח המבוא ל-V_i = ${nV(v2)}`;
+      return { kind: 'chg', change: { Vi: v2 }, text: `${what}. חשבו את מתח המוצא V_o.`, answers: [numA('V_o', vo, 'V', { signed: true })],
+        sol: satSol(raw, m.vcc, `${n(A)} · ${n(v2)}`) };
+    }
+    return null;
+  }
+  function satSol(raw, vcc, expr) {
+    const out = [[null, `A_v · V_i = ${expr} = ${nV(raw)}`]];
+    if (Math.abs(raw) > vcc) out.push([`הערך גדול בערכו המוחלט ממתח הרוויה ${nV(vcc).replace(' V', '')} V, ולכן המגבר ברוויה:`, `V_o = ${raw > 0 ? '+' : '−'}V_sat = ${nV(Math.sign(raw) * vcc)}`]);
+    else out.push(['הערך קטן ממתח הרוויה, ולכן המגבר עובד באזור הלינארי:', `V_o = ${nV(raw)}`]);
+    return out;
+  }
+  function revPart(rng, m) {
+    for (let t = 0; t < 50; t++) {
+      const Rf2 = rnd(m.R1 * rng.pick(RATIO));
+      if (Rf2 === m.Rf || !R_OK(Rf2)) continue;
+      const m2 = Object.assign({}, m, { Rf: Rf2 }), vo = gainOf(m2) * m.src.Vi;
+      if (Math.abs(vo) >= m.vcc || !clean(vo)) continue;
+      const solve = m.type === 'INV'
+        ? ['במגבר מהפך A_v = −R_2 / R_1, ולכן:', `A_v = V_o / ${vinSym(m)} = ${n(vo)} / ${n(m.src.Vi)} = ${numStr(rnd(gainOf(m2)))},   R_2 = −A_v · R_1 = ${numStr(rnd(-gainOf(m2)))} · ${fR(m.R1)} = ${fR(Rf2)}`]
+        : ['במגבר עוקב מופע A_v = 1 + R_2 / R_1, ולכן:', `A_v = V_o / ${vinSym(m)} = ${n(vo)} / ${n(m.src.Vi)} = ${numStr(rnd(gainOf(m2)))},   R_2 = (A_v − 1) · R_1 = ${numStr(rnd(gainOf(m2) - 1))} · ${fR(m.R1)} = ${fR(Rf2)}`];
+      return { kind: 'rev', target: rnd(vo), text: `מה צריך להיות ערך הנגד R_2 כדי שמתח המוצא יהיה ${nV(vo)}?`, answers: [numA('R_2', Rf2, 'Ω')], sol: [solve] };
+    }
+    return null;
+  }
+  // מבוא סינוסואידלי: משרעת המוצא, מופע, וסרטוט לבדיקה עצמית
+  function sineParts(rng, m) {
+    const A = gainOf(m), Vm = m.src.Vi, peak = Math.min(Math.abs(A * Vm), m.vcc), clip = Math.abs(A * Vm) > m.vcc;
+    const inv = A < 0;
+    return [
+      { kind: 'peak', text: 'חשבו את ערך השיא של מתח המוצא V_o.', answers: [numA('V_om', peak, 'V')],
+        sol: [gainLine(m), [null, `|A_v| · V_im = ${numStr(rnd(Math.abs(A)))} · ${numStr(Vm)} = ${nV(Math.abs(A * Vm))}`],
+          clip ? [`הערך גדול ממתח הרוויה, ולכן המוצא נקטם (נחתך) ב-±${numStr(m.vcc)} V:`, `V_om = V_sat = ${nV(m.vcc)}`] : ['הערך קטן ממתח הרוויה, ולכן אין קטימה:', `V_om = ${nV(peak)}`]] },
+      { kind: 'phase', text: 'מה הקשר בין המופע של מתח המוצא למופע של מתח המבוא?',
+        answers: [{ type: 'choice', label: 'המופע', short: 'המופע', value: inv ? 'inv' : 'same',
+          options: [{ value: 'same', label: 'באותו מופע' }, { value: 'inv', label: 'במופע הפוך (הפרש של 180°)' }] }],
+        sol: [[inv ? 'במגבר מהפך ההגבר שלילי: כשהמבוא חיובי המוצא שלילי, ולכן המוצא במופע הפוך (הפרש מופע של 180°).' : 'במגבר עוקב מופע ההגבר חיובי, ולכן המוצא באותו מופע של המבוא.', null]] },
+      { kind: 'sketch', text: 'העתיקו למחברת את מתח המבוא, וסרטטו מתחתיו, בהתאמה, את מתח המוצא V_o כפונקציה של הזמן.', selfcheck: { button: 'הצג את הגרף הנכון להשוואה' }, sol: [] },
+    ];
+  }
+
+  function makeBasic(rng, level, types) {
+    for (let t = 0; t < 500; t++) {
+      const type = rng.pick(types), m = { type };
+      if (type !== 'BUF') Object.assign(m, pickGain(rng, type));
+      m.vcc = level >= 2 ? rng.pick(VCCS) : null;
+      let parts, sine = false;
+      if (level === 1) {
+        m.src = pickSource(rng, ['term']);
+        if (type === 'BUF') { m.RL = rng.pick([1, 2, 4, 5, 10]) * K; parts = [P.io(m)]; }
+        else parts = [P.vo(m)];
+        const raw = gainOf(m) * m.src.Vi;
+        if (Math.abs(raw) > 12) continue;
+      } else if (level === 2) {
+        m.src = pickSource(rng, ['term']);
+        if (Math.abs(gainOf(m) * m.src.Vi) >= m.vcc) continue;
+        if (type === 'BUF') { m.RL = rng.pick([1, 2, 4, 5, 10]) * K; parts = [P.role(), P.vo(m), P.io(m)]; }
+        else {
+          parts = [];
+          if (rng.next() < 0.5) parts.push(P.vB(m));
+          parts.push(rng.next() < 0.5 ? P.iR1(m) : P.iRf(m), P.gain(m), P.vo(m));
+        }
+      } else {
+        if (type === 'BUF') {
+          m.src = pickSource(rng, ['div']); m.RL = rng.pick([1, 2, 3, 4, 6, 10]) * K;
+          if (Math.abs(m.src.Vi) >= m.vcc) continue;
+          const par = m.src.Rb * m.RL / (m.src.Rb + m.RL), vl = rnd(m.src.Vs * par / (m.src.Rt + par));
+          if (!clean(vl) || !clean(par)) continue;
+          parts = [P.vA(m), P.vo(m), P.io(m), { kind: 'load', text: 'מוציאים את מגבר השרת מהמעגל ומחברים את R_L ישירות לנקודה A. חשבו את המתח על R_L.',
+            answers: [numA('V_RL', vl, 'V', { signed: true })],
+            sol: [['עכשיו R_L מחובר במקביל ל-R_4 ומעמיס על המחלק:', `R_4 ∥ R_L = ${fR(m.src.Rb)} · ${fR(m.RL)} / (${fR(m.src.Rb)} + ${fR(m.RL)}) = ${fR(par)}`],
+              [null, `V_RL = V · (R_4 ∥ R_L) / (R_3 + R_4 ∥ R_L) = ${nV(m.src.Vs)} · ${fR(par)} / (${fR(m.src.Rt)} + ${fR(par)}) = ${nV(vl)}`],
+              ['בלי החוצץ המתח על העומס קטן מ-V_A. זה בדיוק תפקיד החוצץ: הוא לא מעמיס על המקור.', null]] }];
+        } else if (rng.next() < 0.22) {
+          sine = true;
+          m.src = { k: 'term', Vi: rng.pick([0.5, 1, 1.5, 2, 2.5, 3, 4, 5]) };
+          parts = sineParts(rng, m);
+          if (!clean(parts[0].answers[0].value)) continue;
+        } else {
+          // מחלק מתח רק במבוא +: שם לא נכנס זרם. במהפך R_1 היה מעמיס על המחלק (V_A לא היה יחס המחלק)
+          m.src = pickSource(rng, type === 'INV' ? ['term', 'bat'] : ['term', 'bat', 'div']);
+          const raw = gainOf(m) * m.src.Vi;
+          if (Math.abs(raw) >= m.vcc || !clean(raw)) continue;
+          const extra = rng.next() < 0.55 ? changePart(rng, m) : revPart(rng, m);
+          if (!extra) continue;
+          parts = (m.src.k === 'div' ? [P.vA(m)] : []).concat([P.vo(m), extra]);
+        }
+      }
+      const vals = parts.flatMap(p => (p.answers || []).filter(a => a.type === 'num').map(a => a.value));
+      if (!vals.every(clean)) continue;
+      // בלי זרמים זעירים
+      if (parts.some(p => (p.answers || []).some(a => a.unit === 'A' && Math.abs(a.value) > 0 && Math.abs(a.value) < 1e-4))) continue;
+      return { m, parts, sine };
+    }
+    throw new Error('no basic exercise');
+  }
+
+  // opts: { mode:'basic'|'adv', level, types, seed? }
+  function makeExercise(opts) {
+    const seed = opts.seed != null ? opts.seed >>> 0 : randomSeed(), rng = makeRng(seed), level = opts.level;
+    if (opts.mode === 'adv') return makeAdvExercise(seed, rng, level, !!opts.comparator);
+    const b = makeBasic(rng, level, opts.types || ['INV', 'NINV', 'BUF']), m = b.m;
+    const one = b.parts.length === 1;
+    let text = 'באיור נתון מעגל הכולל מגבר שרת אידיאלי.';
+    if (b.sine) text += ` מתח המבוא V_i סינוסואידלי, עם ערך שיא של ${nV(m.src.Vi)}.`;
+    if (one) text += ' ' + b.parts[0].text;
+    return { version: VERSION, seed, mode: 'basic', level, kind: 'B' + level + m.type, type: m.type, m, sine: b.sine, circ: circuitOf(m), text, parts: b.parts };
+  }
+  function givensList(ex) {
+    if (ex.mode === 'adv') return givensAdv(ex);
+    const m = ex.m, out = [];
+    if (m.src.k === 'term') out.push(ex.sine ? { sym: 'V_im', text: nV(m.src.Vi) } : { sym: 'V_i', text: nV(m.src.Vi) });
+    if (m.vcc) out.push({ sym: 'V_sat', text: '±' + nV(m.vcc) });
+    return out;
+  }
+  function solutionHtml(ex, pi) {
+    const part = ex.parts[pi], esc = global.Core.esc, symHtml = global.Core.symHtml;
+    if (!part.sol || !part.sol.length) return '';
+    const li = ([note, eq]) => `<li>${note ? `<div class="sn">${symHtml(esc(note))}</div>` : ''}${eq ? `<div class="eq" dir="ltr">${symHtml(esc(eq))}</div>` : ''}</li>`;
+    return '<ol class="steps">' + part.sol.filter(Boolean).map(li).join('') + '</ol>';
+  }
+  // גרף לבדיקה העצמית: מבוא מקווקו ומוצא מודגש, שתי מחזוריות, עם קטימה ב-V_sat
+  function sineSvg(Vm, amp, vcc, inLabel) {
+    const W = 480, H = 240, x0 = 50, x1 = W - 20, yc = H / 2, peak = Math.min(Math.abs(amp), vcc);
+    const top = Math.max(peak, Math.abs(Vm)) * 1.25, Y = v => yc - v / top * (H / 2 - 24), X = t => x0 + t * (x1 - x0);
+    const pts = f => Array.from({ length: 201 }, (_, i) => { const t = i / 200; return rd(X(t)) + ',' + rd(Y(f(t))); }).join(' ');
+    const vi = t => Vm * Math.sin(4 * Math.PI * t), vo = t => sat(amp * Math.sin(4 * Math.PI * t), vcc);
+    const o = [ln(x0, yc, x1 + 8, yc), arrowHead(x1 + 14, yc, 'right'), ln(x0, H - 8, x0, 14), arrowHead(x0, 8, 'up'), txt(x1 + 6, yc + 18, 't', 'middle', ' font-size="12"')];
+    [...new Set([Math.abs(Vm), peak])].forEach(v => [v, -v].forEach(y => o.push(`<line x1="${x0}" y1="${rd(Y(y))}" x2="${x1}" y2="${rd(Y(y))}" style="stroke:#9ca3af;stroke-width:1;stroke-dasharray:3 3"/>`, txt(x0 - 6, Y(y) + 4, numStr(rnd(y)).replace('-', '−'), 'end', ' font-size="11"'))));
+    o.push(`<polyline points="${pts(vi)}" style="stroke:#9ca3af;stroke-dasharray:6 4"/>`, `<polyline points="${pts(vo)}" style="stroke:#111827;stroke-width:3"/>`);
+    o.push(`<line x1="${W - 150}" y1="16" x2="${W - 128}" y2="16" style="stroke:#111827;stroke-width:3"/>`, txt(W - 124, 20, lab('V_o'), 'start', ' font-size="12"'),
+      `<line x1="${W - 80}" y1="16" x2="${W - 58}" y2="16" style="stroke:#9ca3af;stroke-dasharray:6 4"/>`, txt(W - 54, 20, lab(inLabel), 'start', ' font-size="12"'));
+    o.push(txt(x0 + 6, 20, 'V [V]', 'start', ' font-size="12"'));
+    return svgWrap(W, H, o.join(''));
+  }
+  const sineGraphBasic = ex => sineSvg(ex.m.src.Vi, gainOf(ex.m) * ex.m.src.Vi, ex.m.vcc, 'V_i');
+
+  // ---------------- תרגול מתקדם: מסכם, מחסר, וקסקדות של 2–3 מגברים ----------------
+  /* מודל שלב: { type, ins: [input], Ri: [ערך לכל מבוא דרך נגד], Rf, Rg (− לאדמה), Rp (נגד המבוא ל-+ במחסר), Rpg (+ לאדמה במחסר), vcc }
+   *   BUF: ins[0] ישירות ל-+.  INV: ins[0] דרך Ri[0] ל-−.  NINV: ins[0] ישירות ל-+, Rg, Rf.
+   *   SUM: ins[k] דרך Ri[k] ל-− (+ לאדמה).  NSUM: ins[k] דרך Ri[k] ל-+, Rg, Rf.  DIFF: ins[0] דרך Ri[0] ל-−, ins[1] דרך Rp ל-+, Rpg.
+   * מבוא: { k:'term', name, V } | { k:'gnd' } | { k:'bat', name, V (עם סימן) } | { k:'stage', st }
+   */
+  const ADV_NAMES = { BUF: 'חוצץ (BUFFER)', INV: 'מגבר מהפך', NINV: 'מגבר עוקב מופע', SUM: 'מגבר מסכם', NSUM: 'מגבר מסכם לא מהפך', DIFF: 'מגבר מחסר (הפרשי)' };
+  const ROLE_PROPS = {
+    BUF: BUF_PROPS,
+    INV: 'מגבר מהפך: ההגבר שלו A_v = −R_f / R_i, כלומר המוצא במופע הפוך למבוא. המבוא + מחובר לאדמה, ולכן המבוא − נמצא באדמה מדומה (0 V).',
+    NINV: 'מגבר עוקב מופע: ההגבר שלו A_v = 1 + R_f / R_g, והמוצא באותו מופע של המבוא. התנגדות המבוא שלו גבוהה מאוד.',
+  };
+  const RS = [1, 2, 4, 5, 10].map(x => x * K), RS2 = [1, 2, 3, 4, 5, 6, 8, 10, 20].map(x => x * K);
+  const sv = x => (x < 0 ? -1 : 1);
+  const randV = rng => rng.pick(VIS) * (rng.next() < 0.5 ? -1 : 1);
+
+  // ערך מבוא (נדרש: מוצאי שלבים כבר חושבו)
+  const inV = i => (i.k === 'term' || i.k === 'bat' ? i.V : i.k === 'gnd' ? 0 : i.st.vo);
+  // V+ ו-V− (עם משוב שלילי שווים, חוץ מבמשווה) ומתח המוצא הגולמי (בלי רוויה)
+  function evalStage(s) {
+    const v = s.ins.map(inV);
+    let vp = 0, raw;
+    if (s.type === 'BUF') { vp = v[0]; raw = v[0]; }
+    else if (s.type === 'INV') raw = -s.Rf / s.Ri[0] * v[0];
+    else if (s.type === 'NINV') { vp = v[0]; raw = (1 + s.Rf / s.Rg) * v[0]; }
+    else if (s.type === 'SUM') raw = -s.Rf * v.reduce((a, x, k) => a + x / s.Ri[k], 0);
+    else if (s.type === 'NSUM') { vp = v.reduce((a, x, k) => a + x / s.Ri[k], 0) / s.Ri.reduce((a, r) => a + 1 / r, 0); raw = (1 + s.Rf / s.Rg) * vp; }
+    else { vp = v[1] * s.Rpg / (s.Rp + s.Rpg); raw = vp * (1 + s.Rf / s.Ri[0]) - s.Rf / s.Ri[0] * v[0]; }
+    s.vp = rnd(vp); s.raw = rnd(raw); s.vo = rnd(sat(raw, s.vcc));
+    return s;
+  }
+  const stagesOf = s => [].concat(...s.ins.filter(i => i.k === 'stage').map(i => stagesOf(i.st)), [s]);   // לפי סדר החישוב
+  function evalAll(fin) { stagesOf(fin).forEach(evalStage); return fin; }
+  // מקדמים לינאריים: V_o = Σ c_k · V_k (בלי רוויה), לפי ההדקים
+  function linear(fin) {
+    const terms = [], out = {};
+    stagesOf(fin).forEach(s => s.ins.forEach(i => { if (i.k === 'term') terms.push(i); }));
+    const save = terms.map(t => t.V), vccs = stagesOf(fin).map(s => s.vcc);
+    stagesOf(fin).forEach(s => (s.vcc = null));
+    terms.forEach((t, j) => { terms.forEach((u, k) => (u.V = k === j ? 1 : 0)); evalAll(fin); out[t.name] = rnd(fin.vo); });
+    terms.forEach((t, k) => (t.V = save[k])); stagesOf(fin).forEach((s, k) => (s.vcc = vccs[k])); evalAll(fin);
+    return out;
+  }
+  function inverting(s) { return ['INV', 'SUM', 'DIFF'].includes(s.type); }
+  // זרם הנכנס לצומת המבוא המהפך מהמוצא דרך R_f (חיובי: מהמוצא לצומת)
+  const fbCurrent = s => (s.Rf ? (s.vo - (inverting(s) ? (s.type === 'DIFF' ? s.vp : 0) : s.vp)) / s.Rf : 0);
+  const vMinus = s => (s.type === 'INV' || s.type === 'SUM' ? 0 : s.vp);
+
+  // ---- ציור: שמות נגדים, נקודות ושמות מגברים ----
+  function nameCircuit(fin) {
+    let r = 0, a = 0;
+    const inter = ['X', 'Y', 'Z'];
+    const all = stagesOf(fin);
+    all.forEach(s => {
+      s.name = all.length > 1 ? 'A_' + (++a) : null;
+      s.rn = {};
+      if (s.Ri) s.rn.Ri = s.Ri.map(() => 'R_' + (++r));
+      if (s.Rp) s.rn.Rp = 'R_' + (++r);
+      if (s.Rpg) s.rn.Rpg = 'R_' + (++r);
+      if (s.Rg) s.rn.Rg = 'R_' + (++r);
+      if (s.Rf) s.rn.Rf = 'R_' + (++r);
+      s.sym = s === fin ? 'V_o' : 'V_' + inter[all.indexOf(s)];
+      s.pt = s === fin ? null : inter[all.indexOf(s)];
+    });
+    // נקודות בשלב האחרון: מבואות (הדקים) A, B…, אחר כך צומת +, צומת −, המוצא
+    const L = 'ABCDEF'.split(''), pts = {};
+    let li = 0;
+    fin.ins.forEach((i, k) => { pts['in' + k] = i.k === 'stage' ? i.st.pt : i.k === 'gnd' ? 'G' : L[li++]; });
+    const hasP = ['NSUM', 'DIFF', 'NINV', 'BUF'].includes(fin.type), hasN = fin.type !== 'BUF';
+    if (hasP) pts.P = fin.type === 'NINV' || fin.type === 'BUF' ? pts.in0 : L[li++];
+    if (hasN) pts.N = L[li++];
+    pts.out = L[li++];
+    fin.pts = pts;
+  }
+  const RV = (name, value) => ({ name, value });
+  function drawStage(s, isFin) {
+    const src = i => (i.k === 'term' ? { k: 'term', label: i.name } : i.k === 'gnd' ? { k: 'gnd' } : i.k === 'bat' ? { k: 'bat', name: i.name, V: Math.abs(i.V), plusTop: i.V > 0 } : drawStage(i.st, false));
+    const d = { k: 'stage', name: s.name, vcc: s.vcc, neg: [], pos: [], ng: null, pg: null, f: s.open ? null : s.Rf ? RV(s.rn.Rf, s.Rf) : 'wire', marks: {} };
+    if (s.type === 'BUF') d.pos = [{ src: src(s.ins[0]) }];
+    if (s.type === 'INV') { d.neg = [{ R: RV(s.rn.Ri[0], s.Ri[0]), src: src(s.ins[0]) }]; d.pos = [{ src: { k: 'gnd' } }]; }
+    if (s.type === 'NINV') { d.pos = [{ src: src(s.ins[0]) }]; d.ng = RV(s.rn.Rg, s.Rg); }
+    if (s.type === 'SUM') { d.neg = s.ins.map((i, k) => ({ R: RV(s.rn.Ri[k], s.Ri[k]), src: src(i) })); d.pos = [{ src: { k: 'gnd' } }]; }
+    if (s.type === 'NSUM') { d.pos = s.ins.map((i, k) => ({ R: RV(s.rn.Ri[k], s.Ri[k]), src: src(i) })); d.ng = RV(s.rn.Rg, s.Rg); }
+    if (s.type === 'DIFF') { d.neg = [{ R: RV(s.rn.Ri[0], s.Ri[0]), src: src(s.ins[0]) }]; d.pos = [{ R: RV(s.rn.Rp, s.Rp), src: src(s.ins[1]) }]; d.pg = RV(s.rn.Rpg, s.Rpg); }
+    if (s.extraNeg) d.neg.push({ R: RV(s.rn.Rx, s.Rx), src: { k: 'gnd' } });
+    if (!isFin) d.marks.out = s.pt;
+    else {
+      const p = s.pts, mk = d.marks;
+      // נקודת מבוא מסומנת רק כשהמבוא הוא הדק (מוצא של שלב קודם כבר מסומן ב-X/Y)
+      const portKey = (i, k) => (s.type === 'DIFF' ? (k === 0 ? 'in_n0' : 'in_p0') : inverting(s) ? 'in_n' + k : 'in_p' + k);
+      s.ins.forEach((i, k) => { if (i.k !== 'stage') mk[portKey(i, k)] = p['in' + k]; });
+      if (p.N) mk[inverting(s) ? 'N' : 'M'] = p.N;
+      if (p.P && !['NINV', 'BUF'].includes(s.type)) mk.P = p.P;
+      mk.out = p.out;
+    }
+    return d;
+  }
+
+  // ---- בניית מעגלים ----
+  function firstStage(rng, type, input) {
+    const s = { type, ins: [input] };
+    if (type === 'INV') { const g = pickGain(rng, 'INV'); s.Ri = [g.R1]; s.Rf = g.Rf; }
+    if (type === 'NINV') { const g = pickGain(rng, 'NINV'); s.Rg = g.R1; s.Rf = g.Rf; }
+    return s;
+  }
+  function finalStage(rng, type, ins) {
+    const s = { type, ins };
+    if (type === 'SUM') { s.Ri = ins.map(() => rng.pick(RS)); s.Rf = rng.pick(RS2); }
+    if (type === 'NSUM') { const r = rng.pick(RS); s.Ri = ins.map(() => (rng.next() < 0.6 ? r : rng.pick(RS))); s.Rg = rng.pick(RS); s.Rf = rng.pick(RS2); }
+    if (type === 'DIFF') { s.Ri = [rng.pick(RS)]; s.Rf = rng.pick(RS2); s.Rp = rng.pick(RS); s.Rpg = rng.pick(RS2); }
+    if (type === 'INV' || type === 'NINV') Object.assign(s, firstStage(rng, type, ins[0]), { ins });
+    return s;
+  }
+  const T = (name, V) => ({ k: 'term', name, V });
+  function structure(rng, level) {
+    if (level === 1) {
+      const type = rng.pick(['SUM', 'SUM', 'NSUM']), n = type === 'SUM' && rng.next() < 0.35 ? 3 : 2;
+      const ins = Array.from({ length: n }, (_, k) => T('V_' + (k + 1), randV(rng)));
+      if (type === 'SUM' && n === 3 && rng.next() < 0.5) ins[2] = { k: 'gnd' };
+      return finalStage(rng, type, ins);
+    }
+    if (level === 2) return finalStage(rng, 'DIFF', [T('V_1', randV(rng)), T('V_2', randV(rng))]);
+    const pre = () => rng.pick(['BUF', 'INV', 'NINV']);
+    if (level === 3) {
+      const s1 = firstStage(rng, pre(), T('V_1', randV(rng))), fin = rng.pick(['SUM', 'DIFF']);
+      const ins = fin === 'DIFF' && rng.next() < 0.4 ? [T('V_2', randV(rng)), { k: 'stage', st: s1 }] : [{ k: 'stage', st: s1 }, T('V_2', randV(rng))];
+      return finalStage(rng, fin, ins);
+    }
+    // רמות 4–5: שני שלבים שמזינים מסכם או מחסר, או שרשרת של שלושה
+    const srcIn = name => (level === 4 && rng.next() < 0.3 ? { k: 'bat', name, V: rng.pick(VIS) * (rng.next() < 0.5 ? -1 : 1) } : T(name, randV(rng)));
+    if (rng.next() < 0.55) {
+      const s1 = firstStage(rng, pre(), srcIn('V_1')), s2 = firstStage(rng, rng.pick(['INV', 'NINV']), srcIn('V_2'));
+      return finalStage(rng, rng.pick(['SUM', 'DIFF']), [{ k: 'stage', st: s1 }, { k: 'stage', st: s2 }]);
+    }
+    const s1 = firstStage(rng, pre(), srcIn('V_1')), s2 = finalStage(rng, 'SUM', [{ k: 'stage', st: s1 }, srcIn('V_2')]);
+    return finalStage(rng, rng.pick(['INV', 'NINV']), [{ k: 'stage', st: s2 }]);
+  }
+
+  // ---- טקסט ופתרון ----
+  const inSym = i => (i.k === 'term' || i.k === 'bat' ? i.name : i.k === 'gnd' ? '0' : i.st.sym);
+  function stageLines(s) {
+    const v = s.ins.map(inV), n0 = s.ins.map(inSym), out = [], rn = s.rn;
+    const lhs = s.sym + (s.name ? ` (${s.name.replace('_', '')})` : '');
+    const tail = s.raw !== s.vo ? '' : '';
+    if (s.type === 'BUF') out.push([`${s.name || 'המגבר'} הוא חוצץ:`, `${s.sym} = ${n0[0]} = ${nV(v[0])}`]);
+    if (s.type === 'INV') out.push([`${s.name || 'המגבר'} הוא מגבר מהפך:`, `${s.sym} = −${rn.Rf} / ${rn.Ri[0]} · ${n0[0]} = −${fR(s.Rf)} / ${fR(s.Ri[0])} · ${n(v[0])} = ${nV(s.raw)}`]);
+    if (s.type === 'NINV') out.push([`${s.name || 'המגבר'} הוא מגבר עוקב מופע:`, `${s.sym} = (1 + ${rn.Rf} / ${rn.Rg}) · ${n0[0]} = (1 + ${fR(s.Rf)} / ${fR(s.Rg)}) · ${n(v[0])} = ${nV(s.raw)}`]);
+    if (s.type === 'SUM') out.push([`${s.name || 'המגבר'} הוא מגבר מסכם מהפך (המבוא − באדמה מדומה):`,
+      `${s.sym} = −${rn.Rf} · (${s.ins.map((_, k) => `${n0[k]} / ${rn.Ri[k]}`).join(' + ')}) = −${fR(s.Rf)} · (${s.ins.map((_, k) => `${n(v[k])} / ${fR(s.Ri[k])}`).join(' + ')}) = ${nV(s.raw)}`]);
+    if (s.type === 'NSUM') {
+      out.push([`${s.name || 'המגבר'} הוא מגבר מסכם לא מהפך. המתח במבוא + (משפט מילמן):`,
+        `V_+ = (${s.ins.map((_, k) => `${n(v[k])} / ${fR(s.Ri[k])}`).join(' + ')}) / (${s.ins.map((_, k) => `1 / ${fR(s.Ri[k])}`).join(' + ')}) = ${nV(s.vp)}`]);
+      out.push([null, `${s.sym} = (1 + ${rn.Rf} / ${rn.Rg}) · V_+ = (1 + ${fR(s.Rf)} / ${fR(s.Rg)}) · ${n(s.vp)} = ${nV(s.raw)}`]);
+    }
+    if (s.type === 'DIFF') {
+      out.push([`${s.name || 'המגבר'} הוא מגבר מחסר. המתח במבוא + נקבע במחלק ${rn.Rp}, ${rn.Rpg}:`,
+        `V_+ = ${n0[1]} · ${rn.Rpg} / (${rn.Rp} + ${rn.Rpg}) = ${n(v[1])} · ${fR(s.Rpg)} / (${fR(s.Rp)} + ${fR(s.Rpg)}) = ${nV(s.vp)}`]);
+      out.push(['V_− = V_+. מחוק הזרמים בצומת המבוא −:', `${s.sym} = V_+ · (1 + ${rn.Rf} / ${rn.Ri[0]}) − ${rn.Rf} / ${rn.Ri[0]} · ${n0[0]} = ${n(s.vp)} · (1 + ${fR(s.Rf)} / ${fR(s.Ri[0])}) − ${fR(s.Rf)} / ${fR(s.Ri[0])} · ${n(v[0])} = ${nV(s.raw)}`]);
+    }
+    if (s.vcc && Math.abs(s.raw) > s.vcc) out.push([`הערך גדול בערכו המוחלט ממתח הרוויה, ולכן ${s.name || 'המגבר'} ברוויה:`, `${s.sym} = ${s.raw > 0 ? '+' : '−'}V_sat = ${nV(s.vo)}`]);
+    return out;
+  }
+  const chainLines = (fin, upto) => [].concat(...stagesOf(fin).filter(s => !upto || stagesOf(upto).includes(s)).map(stageLines));
+  const linStr = lin => Object.keys(lin).map((k, j) => { const c = lin[k]; return (j ? (c < 0 ? ' − ' : ' + ') : c < 0 ? '−' : '') + numStr(Math.abs(c)) + '·' + k; }).join('');
+
+  // זרם בנגד בשלב האחרון עם כיוון בין שתי נקודות
+  function curPart(fin, which) {
+    const p = fin.pts, vN = vMinus(fin);
+    let a, b, i, R, name;
+    if (which === 'f') { a = p.N; b = p.out; R = fin.Rf; name = fin.rn.Rf; i = (vN - fin.vo) / R; }
+    else {
+      const k = which, inp = fin.ins[k];
+      const node = fin.type === 'DIFF' && k === 1 ? p.P : fin.type === 'NSUM' ? p.P : p.N;
+      const vNode = fin.type === 'DIFF' && k === 1 ? fin.vp : fin.type === 'NSUM' ? fin.vp : vN;
+      R = fin.type === 'DIFF' && k === 1 ? fin.Rp : fin.Ri[k]; name = fin.type === 'DIFF' && k === 1 ? fin.rn.Rp : fin.rn.Ri[k];
+      a = p['in' + k]; b = node; i = (inV(inp) - vNode) / R;
+    }
+    const va = which === 'f' ? vN : inV(fin.ins[which]), vb = which === 'f' ? fin.vo : (fin.type === 'NSUM' || (fin.type === 'DIFF' && which === 1) ? fin.vp : vN);
+    const nodeNote = fin.type === 'SUM' || fin.type === 'INV' ? `המבוא + באדמה, ולכן V_${p.N} = 0 (אדמה מדומה).` : `V_− = V_+ = ${nV(fin.vp)}.`;
+    return { kind: 'cur', text: `חשבו את הזרם דרך הנגד ${name} וקבעו את כיוונו (מ-${a} ל-${b} או מ-${b} ל-${a}).`,
+      answers: [numA('I_' + name.replace('_', ''), Math.abs(i), 'A'), dirA(a, b, i > 0 ? 'XY' : 'YX')],
+      sol: [[nodeNote, null], ['לפי חוק אוהם על הנגד:', `I = (V_${a} − V_${b}) / ${name} = (${n(va)} − ${n(vb)}) / ${fR(R)} = ${fI(i)}`],
+        [i > 0 ? `הזרם חיובי, ולכן הוא זורם מ-${a} ל-${b}.` : `הזרם שלילי, ולכן הוא זורם מ-${b} ל-${a}.`, null]] };
+  }
+  const voPart = fin => ({ kind: 'vo', text: 'חשבו את מתח המוצא V_o.', answers: [numA('V_o', fin.vo, 'V', { signed: true })], sol: chainLines(fin) });
+  const nodePart = s => ({ kind: 'vx', st: s, text: `חשבו את המתח בנקודה ${s.pt}.`, answers: [numA(s.sym, s.vo, 'V', { signed: true })], sol: chainLines(s) });
+  function openPart(fin) {
+    // בלי משוב: V− לפי הרשת שנשארה (במהפך: אין זרם ב-R_i, ולכן V− = המבוא; במסכם: מילמן; בעוקב: R_g לאדמה → 0)
+    const v = fin.ins.map(inV);
+    let vn;
+    if (fin.type === 'INV') vn = v[0];
+    else if (fin.type === 'SUM') vn = v.reduce((a, x, k) => a + x / fin.Ri[k], 0) / fin.Ri.reduce((a, r) => a + 1 / r, 0);
+    else if (fin.type === 'DIFF') vn = v[0];
+    else vn = 0;
+    const d = fin.vp - vn;
+    if (Math.abs(d) < 0.2 || !clean(vn)) return null;
+    const vo = sv(d) * fin.vcc;
+    return { kind: 'open', open: { vn: rnd(vn), vo }, text: `מנתקים את הנגד ${fin.rn.Rf} (נגד המשוב${fin.name ? ' של ' + fin.name : ''}). חשבו את מתח המוצא V_o.`,
+      answers: [numA('V_o', vo, 'V', { signed: true })],
+      sol: [['בלי משוב המגבר פועל כמשווה: המוצא ברוויה, לפי הסימן של V_+ − V_−.', null],
+        [fin.type === 'INV' || fin.type === 'DIFF' ? `לא זורם זרם ב-${fin.rn.Ri[0]} (אין לו המשך), ולכן V_− שווה למתח המבוא שלו:` : fin.type === 'SUM' ? 'V_− לפי משפט מילמן על נגדי המבוא:' : `המבוא − מחובר לאדמה דרך ${fin.rn.Rg}, ובלי זרם בו:`,
+          `V_− = ${nV(vn)},   V_+ = ${nV(fin.vp)}`],
+        [d > 0 ? 'V_+ > V_−, ולכן:' : 'V_+ < V_−, ולכן:', `V_o = ${d > 0 ? '+' : '−'}V_sat = ${nV(vo)}`]] };
+  }
+  function coefPart(fin) {
+    const lin = linear(fin), ks = Object.keys(lin);
+    if (ks.length !== 2 || ks.join() !== 'V_1,V_2') return null;
+    const per = stagesOf(fin).map(s => [null, `${s.sym} = ${linStr(linear(s))}`]);
+    return { kind: 'coef', text: 'רשמו ביטוי למתח המוצא V_o כתלות ב-V_1 וב-V_2, בצורה V_o = a·V_1 + b·V_2. רשמו את המקדמים a ו-b.',
+      answers: [numA('a', lin.V_1, '', { signed: true }), numA('b', lin.V_2, '', { signed: true })],
+      sol: [['מציבים את הביטויים של כל שלב בזה אחר זה (כאילו V_1 ו-V_2 הם משתנים):', null], ...per, [null, `a = ${numStr(lin.V_1)},   b = ${numStr(lin.V_2)}`]] };
+  }
+  function rolePart(s1) {
+    return { kind: 'role', text: `מהו תפקיד המגבר ${s1.name} במעגל?`,
+      answers: [{ type: 'choice', label: 'תפקיד המגבר', short: 'התפקיד', value: s1.type, options: ['BUF', 'INV', 'NINV', 'SUM', 'DIFF'].map(k => ({ value: k, label: ADV_NAMES[k] })) }],
+      sol: [[ROLE_PROPS[s1.type], null]] };
+  }
+  function ioPart(fin, rng) {
+    const If = (fin.vo - vMinus(fin)) / fin.Rf;   // מהמוצא לצומת דרך R_f
+    if (fin.RL) {
+      const io = fin.vo / fin.RL + If;
+      return { kind: 'io', text: 'חשבו את הזרם I_o במוצא המגבר האחרון.', answers: [numA('I_o', io, 'A', { signed: true })],
+        sol: [chainLines(fin).pop(), [`הזרם במוצא מתפצל: ל-R_L ולנגד המשוב ${fin.rn.Rf}:`, `I_RL = V_o / R_L = ${n(fin.vo)} / ${fR(fin.RL)} = ${fI(fin.vo / fin.RL)}`],
+          [null, `I_${fin.rn.Rf.replace('_', '')} = (V_o − V_−) / ${fin.rn.Rf} = (${n(fin.vo)} − ${n(vMinus(fin))}) / ${fR(fin.Rf)} = ${fI(If)}`],
+          [null, `I_o = ${fI(fin.vo / fin.RL)} + ${fI(If).replace(/^−/, '(−') + (If < 0 ? ')' : '')} = ${fI(io)}`]] };
+    }
+    const path = fin.Rg ? `${fin.rn.Rf} ו-${fin.rn.Rg} לאדמה` : `${fin.rn.Rf}`;
+    return { kind: 'io', text: 'חשבו את הזרם I_o במוצא המגבר האחרון.', answers: [numA('I_o', If, 'A', { signed: true })],
+      sol: [['אין עומס במוצא, ולכן כל זרם המוצא עובר בנגד המשוב (' + path + '):', `I_o = (V_o − V_−) / ${fin.rn.Rf} = (${n(fin.vo)} − ${n(vMinus(fin))}) / ${fR(fin.Rf)} = ${fI(If)}`]] };
+  }
+  function rlminPart(fin, rng) {
+    const If = Math.abs((fin.vo - vMinus(fin)) / fin.Rf);
+    if (sv(fin.vo) !== sv(fin.vo - vMinus(fin))) return null;
+    for (let t = 0; t < 30; t++) {
+      const RL = rng.pick([0.5, 1, 2, 2.5, 4, 5].map(x => x * K)), Imax = rnd(Math.abs(fin.vo) / RL + If);
+      if (!clean(Imax) || Imax > 0.05) continue;
+      return { kind: 'rlmin', imax: Imax, text: `הזרם המרבי שמגבר השרת${fin.name ? ' ' + fin.name : ''} יכול לספק במוצא הוא I_o,max = ${fI(Imax)}. מהי ההתנגדות המזערית של העומס R_L המחובר במוצא?`,
+        answers: [numA('R_L', RL, 'Ω')],
+        sol: [[`זרם המוצא מתפצל לנגד המשוב ${fin.rn.Rf} ולעומס R_L. הזרם בנגד המשוב:`, `I_f = |V_o − V_−| / ${fin.rn.Rf} = ${fI(If)}`],
+          ['לעומס נשאר לכל היותר:', `I_RL,max = I_o,max − I_f = ${fI(Imax)} − ${fI(If)} = ${fI(Imax - If)}`],
+          [null, `R_L,min = |V_o| / I_RL,max = ${nV(Math.abs(fin.vo))} / ${fI(Imax - If)} = ${fR(RL)}`]] };
+    }
+    return null;
+  }
+  function revPartAdv(fin, rng) {
+    const RfOld = fin.Rf;
+    for (let t = 0; t < 40; t++) {
+      const Rf2 = rng.pick(RS2.concat([15, 30, 40, 50].map(x => x * K)));
+      if (Rf2 === RfOld) continue;
+      fin.Rf = Rf2; evalStage(fin);
+      const ok = Math.abs(fin.raw) < fin.vcc && clean(fin.vo) && Math.abs(fin.vo) >= 0.5, target = fin.vo;
+      fin.Rf = RfOld; evalStage(fin);
+      if (!ok) continue;
+      const vN = vMinus(fin), I = (fin.vo - vN) / fin.Rf;   // הזרם שזורם בצומת אל R_f לא תלוי ב-R_f (מלבד בעוקב)
+      const sol = inverting(fin)
+        ? [[`V_− = ${nV(vN)} לא תלוי ב-${fin.rn.Rf}, וגם הזרם שמגיע לצומת מנגדי המבוא לא תלוי בו. כל הזרם הזה עובר ב-${fin.rn.Rf}:`, `I_f = (V_o − V_−) / ${fin.rn.Rf} = (${n(fin.vo)} − ${n(vN)}) / ${fR(fin.Rf)} = ${fI(I)}`],
+          [null, `${fin.rn.Rf} = (V_o' − V_−) / I_f = (${n(target)} − ${n(vN)}) / ${fI(I)} = ${fR(Rf2)}`]]
+        : [[`V_+ = ${nV(fin.vp)} לא תלוי ב-${fin.rn.Rf}:`, `1 + ${fin.rn.Rf} / ${fin.rn.Rg} = V_o' / V_+ = ${n(target)} / ${n(fin.vp)} = ${numStr(rnd(target / fin.vp))}`],
+          [null, `${fin.rn.Rf} = (${numStr(rnd(target / fin.vp))} − 1) · ${fR(fin.Rg)} = ${fR(Rf2)}`]];
+      return { kind: 'rev', target, text: `מה צריך להיות ערך הנגד ${fin.rn.Rf} כדי שמתח המוצא יהיה ${nV(target)}?`, answers: [numA(fin.rn.Rf.replace('_', ''), Rf2, 'Ω')], sol };
+    }
+    return null;
+  }
+  function sinePartsAdv(fin) {
+    const lin = linear(fin), ks = Object.keys(lin);
+    if (ks.join() !== 'V_1,V_2') return null;
+    const terms = stagesOf(fin).flatMap(s => s.ins.filter(i => i.k === 'term'));
+    const amp = rnd(terms.reduce((a, t) => a + lin[t.name] * t.V, 0)), peak = Math.min(Math.abs(amp), fin.vcc), clip = Math.abs(amp) > fin.vcc;
+    if (Math.abs(amp) < 0.5 || !clean(peak)) return null;
+    // שלבי ביניים בלי רוויה בשיא
+    if (stagesOf(fin).some(s => s !== fin && Math.abs(s.raw) > s.vcc)) return null;
+    return [
+      { kind: 'peak', text: 'חשבו את ערך השיא של מתח המוצא V_o.', answers: [numA('V_om', peak, 'V')],
+        sol: [['שני המבואות באותו מופע, ולכן בכל רגע V_o = a·V_1 + b·V_2 עם:', `V_o = ${linStr(lin)}`],
+          [null, `a·V_1m + b·V_2m = ${n(lin.V_1)}·${n(terms[0].V)} + ${n(lin.V_2)}·${n(terms[1].V)} = ${nV(amp)}`],
+          clip ? [`הערך גדול ממתח הרוויה, ולכן המוצא נקטם ב-±${numStr(fin.vcc)} V:`, `V_om = V_sat = ${nV(fin.vcc)}`] : [null, `V_om = |${n(amp)}| = ${nV(peak)}`]] },
+      { kind: 'phase', text: 'מה הקשר בין המופע של מתח המוצא למופע של מתחי המבוא?',
+        answers: [{ type: 'choice', label: 'המופע', short: 'המופע', value: amp < 0 ? 'inv' : 'same', options: [{ value: 'same', label: 'באותו מופע' }, { value: 'inv', label: 'במופע הפוך (הפרש של 180°)' }] }],
+        sol: [[amp < 0 ? 'הסכום a·V_1m + b·V_2m שלילי: כשהמבואות חיוביים המוצא שלילי, ולכן הוא במופע הפוך.' : 'הסכום a·V_1m + b·V_2m חיובי, ולכן המוצא באותו מופע של המבואות.', null]] },
+      { kind: 'sketch', text: 'העתיקו למחברת את מתח המבוא V_1, וסרטטו מתחתיו, בהתאמה, את מתח המוצא V_o כפונקציה של הזמן.', selfcheck: { button: 'הצג את הגרף הנכון להשוואה' }, sol: [] },
+    ];
+  }
+
+  function makeAdv(rng, level, comparator) {
+    for (let t = 0; t < 800; t++) {
+      const fin = structure(rng, level), all = stagesOf(fin), vcc = rng.pick(VCCS);
+      all.forEach(s => (s.vcc = vcc));
+      evalAll(fin);
+      // ערכים נקיים, שלבי ביניים בלי רוויה, מתחים לא זעירים
+      if (!all.every(s => clean(s.raw) && clean(s.vp))) continue;
+      if (all.some(s => s !== fin && (Math.abs(s.raw) >= vcc || Math.abs(s.raw) < 0.5))) continue;
+      if (Math.abs(Math.abs(fin.raw) - vcc) < 1e-9) continue;   // בדיוק במתח הרוויה: לא ברור אם זו רוויה
+      const satFinal = Math.abs(fin.raw) > vcc;
+      if (satFinal && (level < 4 || rng.next() < 0.7)) continue;   // רוויה במוצא רק ברמות 4–5, בחלק מהתרגילים
+      if (!satFinal && Math.abs(fin.raw) < 0.5) continue;
+      nameCircuit(fin);
+      const s1 = all[0], parts = [];
+      let sine = false;
+      if (level === 1) {
+        if (fin.type === 'SUM') {
+          const ks = rng.shuffle(fin.ins.map((_, k) => k).filter(k => fin.ins[k].k !== 'gnd' || rng.next() < 0.5));
+          parts.push(curPart(fin, ks[0]));
+          parts.push(rng.next() < 0.5 && ks[1] != null ? curPart(fin, ks[1]) : curPart(fin, 'f'));
+        } else {
+          parts.push({ kind: 'vp', text: `חשבו את המתח בנקודה ${fin.pts.P}.`, answers: [numA('V_' + fin.pts.P, fin.vp, 'V', { signed: true })], sol: [stageLines(fin)[0]] });
+          parts.push(curPart(fin, rng.int(0, fin.ins.length - 1)));
+        }
+        parts.push(voPart(fin));
+      } else if (level === 2) {
+        parts.push({ kind: 'vab', text: `חשבו את המתח בנקודות ${fin.pts.P} ו-${fin.pts.N}.`,
+          answers: [numA('V_' + fin.pts.P, fin.vp, 'V', { signed: true }), numA('V_' + fin.pts.N, fin.vp, 'V', { signed: true })],
+          sol: [stageLines(fin)[0], ['במגבר אידיאלי עם משוב שלילי V_− = V_+:', `V_${fin.pts.N} = V_${fin.pts.P} = ${nV(fin.vp)}`]] });
+        parts.push(curPart(fin, rng.next() < 0.5 ? 0 : 'f'), voPart(fin));
+        // אחרי שינוי: מבוא אחר (אולי רוויה)
+        const k = rng.int(0, 1), inp = fin.ins[k], old = inp.V;
+        let chg = null;
+        for (let u = 0; u < 30 && !chg; u++) {
+          const v2 = rng.pick(VIS.concat([6, 8, 10])) * (rng.next() < 0.5 ? -1 : 1);
+          if (v2 === old) continue;
+          inp.V = v2; evalStage(fin);
+          const raw = fin.raw, vo = fin.vo, lines = stageLines(fin);
+          inp.V = old; evalStage(fin);
+          if (!clean(raw) || (rng.next() < 0.6) !== (Math.abs(raw) > vcc)) continue;
+          chg = { kind: 'chg', change: { k, V: v2 }, text: `משנים את המתח ${inp.name} ל-${nV(v2)}. חשבו את מתח המוצא V_o.`, answers: [numA('V_o', vo, 'V', { signed: true })], sol: lines };
+        }
+        if (!chg) continue;
+        parts.push(chg);
+      } else {
+        const inter = all.filter(s => s !== fin);
+        if (level === 3) parts.push(rolePart(s1));
+        inter.forEach(s => parts.push(nodePart(s)));
+        if (level === 5 && rng.next() < 0.35) {
+          const sp = sinePartsAdv(fin);
+          if (!sp) continue;
+          sine = true;
+          const cp = coefPart(fin);
+          parts.length = 0;
+          if (cp) parts.push(cp);
+          parts.push(...sp);
+        } else {
+          if (!satFinal && rng.next() < 0.6) {
+            const stIn = fin.ins.findIndex(i => i.k === 'stage');
+            if (['SUM', 'DIFF', 'INV'].includes(fin.type) && stIn >= 0 && stIn !== (fin.type === 'DIFF' ? 1 : -1)) parts.push(curPart(fin, stIn));
+          }
+          parts.push(voPart(fin));
+          if (level === 3) { const cp = coefPart(fin); if (cp && rng.next() < 0.6) parts.push(cp); }
+          if (level === 4 && !satFinal) {
+            if (rng.next() < 0.5) { if (rng.next() < 0.5) fin.RL = rng.pick([1, 2, 4, 5]) * K; parts.push(ioPart(fin, rng)); }
+            else { const p = rlminPart(fin, rng); if (!p) continue; fin.RL = null; fin.RLunknown = true; parts.push(p); }
+          }
+          if (level === 5) { const rp = revPartAdv(fin, rng); if (!rp || satFinal) continue; parts.push(rp); }
+        }
+      }
+      if (comparator && level >= 3 && fin.Rf && !sine && rng.next() < 0.6) { const op = openPart(fin); if (op) parts.push(op); }
+      const vals = parts.flatMap(p => (p.answers || []).filter(a => a.type === 'num').map(a => a.value));
+      if (!vals.every(clean)) continue;
+      if (parts.some(p => (p.answers || []).some(a => a.unit === 'A' && Math.abs(a.value) < 1e-4))) continue;
+      if (parts.length > 6) continue;
+      return { fin, parts, sine };
+    }
+    throw new Error('no advanced exercise');
+  }
+  function circuitAdv(fin) {
+    return { stage: drawStage(fin, true), RL: fin.RL ? { name: 'R_L', value: fin.RL } : fin.RLunknown ? { name: 'R_L', value: null } : null, Io: !!(fin.RL || fin.RLunknown || fin.ioShown) };
+  }
+  function makeAdvExercise(seed, rng, level, comparator) {
+    const a = makeAdv(rng, level, comparator), fin = a.fin;
+    if (a.parts.some(p => p.kind === 'io')) fin.ioShown = true;
+    const n = stagesOf(fin).length;
+    let text = n > 1 ? `באיור נתון מעגל חשמלי הכולל ${n === 2 ? 'שני' : 'שלושה'} מגברי שרת אידיאליים.` : 'באיור נתון מעגל חשמלי הכולל מגבר שרת אידיאלי.';
+    if (a.sine) text += ' מתחי המבוא V_1 ו-V_2 סינוסואידליים ובאותו מופע; ערכי השיא שלהם נתונים.';
+    return { version: VERSION, seed, mode: 'adv', level, kind: 'A' + level + fin.type, type: fin.type, fin, sine: a.sine, circ: circuitAdv(fin), text, parts: a.parts };
+  }
+  function givensAdv(ex) {
+    const out = [];
+    stagesOf(ex.fin).forEach(s => s.ins.forEach(i => { if (i.k === 'term') out.push({ sym: ex.sine ? i.name + 'm' : i.name, text: nV(i.V) }); }));
+    out.push({ sym: 'V_sat', text: '±' + nV(ex.fin.vcc) });
+    return out;
+  }
+  function sineGraphAdv(ex) {
+    const lin = linear(ex.fin), terms = stagesOf(ex.fin).flatMap(s => s.ins.filter(i => i.k === 'term'));
+    const amp = terms.reduce((a, t) => a + lin[t.name] * t.V, 0), V1 = terms.find(t => t.name === 'V_1').V;
+    return sineSvg(V1, amp, ex.fin.vcc, 'V_1');
+  }
+
+  const sineGraph = ex => (ex.mode === 'adv' ? sineGraphAdv(ex) : sineGraphBasic(ex));
+
+  global.Engine = {
+    VERSION, MAX_ATTEMPTS, TOL, TYPE_NAMES, ADV_NAMES, linear, stagesOf, LEVELS: { basic: 3, adv: 5 }, makeRng, randomSeed, Units, fmtR, fmtV, gainOf,
+    makeExercise, givensList, solutionHtml, sineGraph, minLevel: () => 1, Draw: { render },
+  };
+})(typeof window !== 'undefined' ? window : globalThis);
+</script>
+
+<!-- ======================= ממשק (common/core.js) ======================= -->
+<script>
+(function () {
+  'use strict';
+  const E = window.Engine, $ = id => document.getElementById(id);
+  const TYPE_IDS = ['INV', 'NINV', 'BUF'];
+  const mode = () => ($('mAdv').checked ? 'adv' : 'basic');
+  const readSettings = () => ({ mode: mode(), types: TYPE_IDS.filter(t => $('t' + t).checked), level: +$('level').value, comparator: $('cmp').checked });
+  let curMode = 'basic';
+  function syncSettings() {
+    const s = readSettings(), max = E.LEVELS[s.mode], cur = +$('level').value || 1;
+    if ($('level').options.length !== max) $('level').innerHTML = Array.from({ length: max }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join('');
+    $('level').value = String(Math.min(cur, max));
+    $('typesBox').hidden = s.mode !== 'basic';
+    $('cmpBox').hidden = s.mode !== 'adv';
+    const bad = s.mode === 'basic' && !s.types.length;
+    $('setNote').textContent = bad ? 'יש לבחור לפחות סוג מגבר אחד.' : '';
+    $('start').disabled = bad;
+  }
+  TYPE_IDS.map(t => 't' + t).concat('level', 'mBasic', 'mAdv').forEach(id => $(id).addEventListener('change', syncSettings));
+  syncSettings();
+
+  // מספר הרמות תלוי בסוג התרגול
+  const engine = { VERSION: E.VERSION, MAX_ATTEMPTS: E.MAX_ATTEMPTS, get MAX_LEVEL() { return E.LEVELS[curMode]; } };
+  Core.mountUI({
+    engine, units: E.Units, prefixes: ['', 'k', 'm', 'µ'],
+    readSettings, minLevel: () => 1,
+    makeExercise: (s, level) => { curMode = s.mode; return E.makeExercise({ mode: s.mode, level, types: s.types, comparator: s.comparator }); },
+    // בלי סוג המגבר: זיהוי הסוג הוא חלק מהתרגיל (ובשאלת התפקיד הוא התשובה)
+    ctypeHtml: ex => (ex.mode === 'basic' ? 'תרגול בסיסי' : 'תרגול מתקדם'),
+    render: ex => E.Draw.render(ex.circ),
+    givens: ex => E.givensList(ex),
+    parts: ex => ex.parts.map(p => (p.selfcheck ? Object.assign({}, p, { selfcheck: Object.assign({}, p.selfcheck, { html: E.sineGraph(ex) }) }) : p)),
+    solution: { title: 'פתרון', html: (ex, pi) => E.solutionHtml(ex, pi), onCorrect: true },
+    failSuffix: '',
+  });
+})();
+</script>
+</body>
+</html>

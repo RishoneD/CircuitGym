@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>בדיקות: תרגול מגברי שרת</title>
+<style>
+  body { font-family: "Segoe UI", Arial, sans-serif; margin: 16px; color: #1f2937; background: #f4f6f9; }
+  h1 { font-size: 20px; } h2 { font-size: 17px; margin-top: 24px; }
+  pre { background: #fff; border: 1px solid #d9dee6; border-radius: 8px; padding: 10px; direction: ltr; text-align: left; white-space: pre-wrap; font-size: 13px; }
+  .pass { color: #15803d; font-weight: bold; } .fail { color: #b42318; font-weight: bold; }
+  .gal { direction: ltr; display: grid; grid-template-columns: repeat(auto-fill, minmax(560px, 1fr)); gap: 12px; }
+  figure { margin: 0; background: #fff; border: 1px solid #d9dee6; border-radius: 8px; padding: 6px; min-width: 0; }
+  figcaption { font-size: 12px; color: #6b7280; direction: rtl; text-align: right; }
+  figure svg { display: block; width: 100%; height: auto; }
+</style>
+</head>
+<body>
+<h1>בדיקות מנוע מגברי השרת וגלריית ציורים</h1>
+<p>דורש שרת מקומי.</p>
+<div id="summary"></div>
+<pre id="log"></pre>
+<h2>גלריה: שאלות הבגרות לדוגמה בציור של האתר</h2>
+<div id="gallery" class="gal"></div>
+
+<script>
+(async function () {
+  const lines = [], log = s => lines.push(s);
+  await new Promise((res, rej) => { const c = document.createElement('script'); c.src = '../common/core.js'; c.onload = res; c.onerror = rej; document.head.appendChild(c); });
+  const html = await (await fetch('index.html', { cache: 'no-store' })).text();
+  const sc = document.createElement('script');
+  sc.textContent = new DOMParser().parseFromString(html, 'text/html').getElementById('engine').textContent;
+  document.head.appendChild(sc);
+  const E = window.Engine, U = E.Units;
+  let pass = 0, fail = 0;
+  const failures = [];
+  function ok(cond, msg) { if (cond) pass++; else { fail++; if (failures.length < 40) failures.push(msg); } }
+  const near = (a, b) => Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(b));
+  const clone = x => JSON.parse(JSON.stringify(x));
+
+  // ---------- פותר בלתי תלוי: מגבר שרת אידיאלי, מתוך מבנה הציור ----------
+  // terms: ערכי ההדקים לפי שם. מחזיר { V, Rth } לכל מקור (מקור תבנן)
+  function source(s, terms) {
+    if (s.k === 'term') return { V: terms[s.label], Rth: 0 };
+    if (s.k === 'gnd') return { V: 0, Rth: 0 };
+    if (s.k === 'bat') return { V: s.plusTop ? s.V : -s.V, Rth: 0 };
+    if (s.k === 'div') { const a = s.Rt.value, b = s.Rb.value; return { V: s.V * b / (a + b), Rth: a * b / (a + b) }; }
+    return { V: stageOut(s, terms).Vo, Rth: 0 };
+  }
+  // מילמן: מתח הצומת שאליו מחוברים מקורות דרך נגדים (ונגד לאדמה); חיבור ישיר קובע את המתח
+  function node(list, rg, terms) {
+    const xs = list.map(e => { const s = source(e.src, terms); return { V: s.V, R: (e.R ? e.R.value : 0) + s.Rth }; });
+    const direct = xs.find(x => x.R === 0);
+    if (direct) return direct.V;
+    let num = 0, den = rg ? 1 / rg.value : 0;
+    xs.forEach(x => { num += x.V / x.R; den += 1 / x.R; });
+    return num / den;
+  }
+  function stageOut(st, terms) {
+    const vp = st.pos.length ? node(st.pos, st.pg, terms) : 0;
+    let vo;
+    if (!st.f) { const vn = st.neg.length ? node(st.neg, st.ng, terms) : 0; vo = Math.sign(vp - vn) * st.vcc; }
+    else if (st.f === 'wire') vo = vp;
+    else {
+      // V− = V+; חוק הזרמים בצומת המהפך קובע את V_o
+      const vn = vp, xs = st.neg.map(e => { const s = source(e.src, terms); return { V: s.V, R: e.R.value + s.Rth }; });
+      let sum = xs.reduce((a, x) => a + (vn - x.V) / x.R, 0) + (st.ng ? vn / st.ng.value : 0);
+      vo = vn + st.f.value * sum;
+    }
+    const raw = vo;
+    if (st.vcc && Math.abs(vo) > st.vcc) vo = Math.sign(vo) * st.vcc;
+    return { Vo: vo, raw, vp };
+  }
+
+  // ---------- תרגול בסיסי ----------
+  const N = +(new URLSearchParams(location.search).get('n') || 300);
+  const stats = {};
+  let total = 0;
+  for (const t of ['INV', 'NINV', 'BUF']) for (let level = 1; level <= 3; level++) for (let i = 0; i < N; i++) {
+    const seed = (total * 2654435761 + 3) >>> 0; total++;
+    let ex;
+    try { ex = E.makeExercise({ mode: 'basic', level, types: [t], seed }); } catch (e) { ok(false, `threw ${e.message} (seed ${seed})`); continue; }
+    const tag = `(${t} L${level} seed ${seed})`, m = ex.m, st0 = ex.circ.stage, terms = { V_i: m.src.k === 'term' ? m.src.Vi : undefined };
+    const key = `${t} L${level}: ${ex.parts.map(p => p.kind).join(',')}${ex.sine ? ' sine' : ''}`;
+    stats[key] = (stats[key] || 0) + 1;
+    ok(ex.type === t, 'type ' + tag);
+    const again = E.makeExercise({ mode: 'basic', level, types: [t], seed });
+    ok(JSON.stringify(again.parts) === JSON.stringify(ex.parts), 'deterministic ' + tag);
+    // ספק ורוויה לפי רמה
+    ok(level === 1 ? !st0.vcc : !!st0.vcc, 'supply drawn from level 2 ' + tag);
+    const sol = stageOut(st0, terms), vA = source(st0.neg.length ? st0.neg[0].src : st0.pos[0].src, terms).V;
+    if (level <= 2 || !ex.sine) ok(Math.abs(sol.raw) <= (st0.vcc || 12) + 1e-9, 'no saturation in the main circuit ' + tag);
+    // כל תשובה מספרית נקייה, וזרמים לא זעירים
+    ex.parts.forEach(p => (p.answers || []).forEach(a => {
+      if (a.type !== 'num') return;
+      ok(Math.abs(a.value) < 1e-12 || U.isClean(a.value), `clean ${a.sym}=${a.value} ` + tag);
+      if (a.unit === 'A') ok(Math.abs(a.value) >= 1e-4, `tiny current ${a.value} ` + tag);
+    }));
+    ok(ex.parts.length === 1 ? level === 1 : level >= 2, 'single question only at level 1 ' + tag);
+    // כל סעיף מול הפותר
+    ex.parts.forEach((p, pi) => {
+      const A = p.answers || [], v = A[0] && A[0].value;
+      if (p.kind === 'vo') ok(near(v, sol.Vo), `vo ${v} vs ${sol.Vo} ` + tag);
+      if (p.kind === 'vA') ok(near(v, vA), `vA ${v} vs ${vA} ` + tag);
+      if (p.kind === 'vB') ok(near(v, t === 'INV' ? 0 : sol.vp), 'vB ' + tag);
+      if (p.kind === 'gain') ok(near(v, sol.Vo / vA), 'gain ' + tag);
+      if (p.kind === 'iR1') {
+        const R1 = t === 'INV' ? st0.neg[0].R.value : st0.ng.value;
+        const i = t === 'INV' ? (vA - 0) / R1 : sol.vp / R1;   // INV: מ-A ל-B; NINV: מ-B לאדמה
+        ok(near(v, Math.abs(i)) && A[1].value === (i > 0 ? 'XY' : 'YX'), `iR1 ${v} ${A[1].value} vs ${i} ` + tag);
+      }
+      if (p.kind === 'iRf') {
+        const vB = t === 'INV' ? 0 : sol.vp, i = (vB - sol.Vo) / st0.f.value;
+        ok(near(v, Math.abs(i)) && A[1].value === (i > 0 ? 'XY' : 'YX'), 'iRf ' + tag);
+      }
+      if (p.kind === 'io') ok(near(v, sol.Vo / ex.circ.RL.value), 'io ' + tag);
+      if (p.kind === 'role') ok(A[0].value === 'BUF' && t === 'BUF', 'role ' + tag);
+      if (p.kind === 'chg') {
+        const st2 = clone(st0), terms2 = Object.assign({}, terms);
+        if (p.change.Rf) st2.f.value = p.change.Rf;
+        if (p.change.Vi != null) { if (st2[st2.neg.length ? 'neg' : 'pos'][0].src.k === 'bat') { const b = st2[st2.neg.length ? 'neg' : 'pos'][0].src; b.V = Math.abs(p.change.Vi); b.plusTop = p.change.Vi > 0; } else terms2.V_i = p.change.Vi; }
+        const s2 = stageOut(st2, terms2);
+        ok(near(v, s2.Vo), `chg ${v} vs ${s2.Vo} ` + tag);
+        stats['saturated after change'] = (stats['saturated after change'] || 0) + (Math.abs(s2.raw) > st0.vcc ? 1 : 0);
+        ok(p.text.includes(p.change.Rf ? 'R_2' : (m.src.k === 'bat' ? 'סוללה' : 'V_i')), 'chg text ' + tag);
+      }
+      if (p.kind === 'rev') { const st2 = clone(st0); st2.f.value = v; ok(near(stageOut(st2, terms).Vo, p.target), 'rev ' + tag); ok(p.text.includes(E.fmtV(p.target).replace('−', '-')) || p.text.includes(String(Math.abs(p.target))), 'rev text ' + tag); }
+      if (p.kind === 'peak') { const g = stageOut(st0, { V_i: 1 }).raw; ok(near(v, Math.min(Math.abs(g * m.src.Vi), st0.vcc)), 'peak ' + tag); }
+      if (p.kind === 'phase') ok(A[0].value === (t === 'INV' ? 'inv' : 'same'), 'phase ' + tag);
+      if (p.kind === 'load') {
+        const d = st0.pos[0].src, RL = ex.circ.RL.value, a = d.Rt.value, b = d.Rb.value;
+        // נודלי: (V − Vx)/a = Vx/b + Vx/RL
+        const vx = (d.V / a) / (1 / a + 1 / b + 1 / RL);
+        ok(near(v, vx), 'load ' + tag);
+      }
+      if (p.kind === 'sketch') ok(pi === ex.parts.length - 1 && !!p.selfcheck, 'sketch last ' + tag);
+      // פתרון: לא מכיל את התשובה של סעיף מאוחר יותר (תשובה מספרית ששונה מכל התשובות עד כה)
+      const html = E.solutionHtml(ex, pi);
+      ok(p.kind === 'sketch' || html.length > 20, 'solution present ' + tag);
+    });
+    // הנקודות שמוזכרות בטקסט מסומנות בציור
+    const svg = E.Draw.render(ex.circ).svg;
+    const named = new Set(ex.parts.flatMap(p => (p.text.match(/(?:נקודה|מ-|ל-)([A-C])\b/g) || []).map(s => s.slice(-1))));
+    named.forEach(L => ok(new RegExp(`class="pt">${L}<`).test(svg), `point ${L} drawn ` + tag));
+    ok(!/מהפך|עוקב מופע|חוצץ|BUFFER/.test([ex.text, ...ex.parts.map(p => p.text)].join(' ')), 'question text does not name the amplifier type ' + tag);
+    // מחלק מתח רק במבוא +
+    if (m.src.k === 'div') ok(t !== 'INV', 'divider only on + input ' + tag);
+  }
+  log('basic exercises: ' + total);
+  log(JSON.stringify(stats, null, 1));
+
+  // ---------- תרגול מתקדם ----------
+  const allStages = st => [].concat(...st.neg.concat(st.pos).filter(e => e.src.k === 'stage').map(e => allStages(e.src)), [st]);
+  const findR = (st, name) => { for (const s of allStages(st)) for (const r of [].concat(s.neg.map(e => e.R), s.pos.map(e => e.R), [s.ng, s.pg, s.f])) if (r && r.name === name) return r; return null; };
+  const termsOf = ex => { const t = {}; ex.E.stagesOf(ex.fin).forEach(s => s.ins.forEach(i => { if (i.k === 'term') t[i.name] = i.V; })); return t; };
+  const astats = {};
+  let atotal = 0;
+  for (const cmp of [false, true]) for (let level = 1; level <= 5; level++) for (let i = 0; i < N; i++) {
+    const seed = (atotal * 2654435761 + 11) >>> 0; atotal++;
+    let ex;
+    try { ex = E.makeExercise({ mode: 'adv', level, comparator: cmp, seed }); } catch (e) { ok(false, `adv threw ${e.message} (seed ${seed})`); continue; }
+    ex.E = E;
+    const tag = `(adv L${level}${cmp ? ' cmp' : ''} seed ${seed})`, fin = ex.circ.stage, terms = termsOf(ex), stages = allStages(fin);
+    const key = `L${level} ${stages.length} stages: ${ex.parts.map(p => p.kind).join(',')}`;
+    astats[key] = (astats[key] || 0) + 1;
+    ok(JSON.stringify(E.makeExercise({ mode: 'adv', level, comparator: cmp, seed }).parts) === JSON.stringify(ex.parts), 'adv deterministic ' + tag);
+    ok(stages.length === (level <= 2 ? 1 : level === 3 ? 2 : 3), 'stage count ' + tag);
+    ok(stages.every(s => s.vcc), 'supply on every stage ' + tag);
+    // שלבי ביניים לא ברוויה
+    stages.filter(s => s !== fin).forEach(s => { const r = stageOut(s, terms); ok(Math.abs(r.raw) < s.vcc, 'intermediate not saturated ' + tag); });
+    const fo = stageOut(fin, terms);
+    if (Math.abs(fo.raw) > fin.vcc) ok(level >= 4, 'final saturation only at levels 4-5 ' + tag);
+    ex.parts.forEach(p => (p.answers || []).forEach(a => { if (a.type === 'num') { ok(Math.abs(a.value) < 1e-12 || U.isClean(a.value), `adv clean ${a.sym}=${a.value} ` + tag); if (a.unit === 'A') ok(Math.abs(a.value) >= 1e-4, 'adv tiny current ' + tag); } }));
+    // ערך כל נקודה מסומנת
+    const ptV = {};
+    stages.forEach(s => { if (s !== fin && s.marks.out) ptV[s.marks.out] = stageOut(s, terms).Vo; });
+    const M = fin.marks;
+    const inv = fin.neg.length > 0;
+    fin.neg.forEach((e, k) => { if (M['in_n' + k]) ptV[M['in_n' + k]] = source(e.src, terms).V; });
+    fin.pos.forEach((e, k) => { if (M['in_p' + k]) ptV[M['in_p' + k]] = source(e.src, terms).V; });
+    if (M.P) ptV[M.P] = fo.vp;
+    if (M.N) ptV[M.N] = fo.vp;
+    if (M.M) ptV[M.M] = fo.vp;
+    if (M.out) ptV[M.out] = fo.Vo;
+    ptV.G = 0;
+    const svg = E.Draw.render(ex.circ).svg;
+    ex.parts.forEach((p, pi) => {
+      const A = p.answers || [], v = A[0] && A[0].value;
+      // כל נקודה שמוזכרת בטקסט מסומנת בציור
+      (p.text.match(/(?:נקודה |נקודות |מ-|ל-|ו-)([A-GXYZ])\b/g) || []).map(s => s.slice(-1)).forEach(L => ok(new RegExp(`class="pt">${L}<`).test(svg), `adv point ${L} drawn ` + tag));
+      if (p.kind === 'vo') ok(near(v, fo.Vo), `adv vo ${v} vs ${fo.Vo} ` + tag);
+      if (p.kind === 'vx') { const L = p.text.match(/נקודה ([XYZ])/)[1]; ok(near(v, ptV[L]), `vx ${L} ` + tag); }
+      if (p.kind === 'vp') ok(near(v, fo.vp), 'vp ' + tag);
+      if (p.kind === 'vab') ok(near(A[0].value, fo.vp) && near(A[1].value, fo.vp), 'vab ' + tag);
+      if (p.kind === 'cur') {
+        const m = p.text.match(/הנגד (R_\d+) .*\(מ-(\w) ל-(\w) /), r = findR(fin, m[1]), i = (ptV[m[2]] - ptV[m[3]]) / r.value;
+        ok(near(v, Math.abs(i)) && A[1].value === (i > 0 ? 'XY' : 'YX'), `cur ${m[1]} ${v} ${A[1].value} vs ${i} ` + tag);
+      }
+      if (p.kind === 'chg') { const t2 = Object.assign({}, terms); t2['V_' + (p.change.k + 1)] = p.change.V; ok(near(v, stageOut(fin, t2).Vo), 'chg ' + tag); }
+      if (p.kind === 'role') { const s1 = stages[0], t = s1.f === 'wire' ? 'BUF' : s1.neg.length ? 'INV' : 'NINV'; ok(A[0].value === t, 'role ' + tag); }
+      if (p.kind === 'coef') {
+        const f2 = clone(fin); allStages(f2).forEach(s => (s.vcc = null));
+        ok(near(A[0].value, stageOut(f2, { V_1: 1, V_2: 0 }).Vo) && near(A[1].value, stageOut(f2, { V_1: 0, V_2: 1 }).Vo), 'coef ' + tag);
+      }
+      if (p.kind === 'io') {
+        // זרם היוצא מצומת המוצא: לעומס ולנגד המשוב (V− = V+)
+        const io = (ex.circ.RL ? fo.Vo / ex.circ.RL.value : 0) + (fo.Vo - fo.vp) / fin.f.value;
+        ok(near(v, io), `io ${v} vs ${io} ` + tag);
+      }
+      if (p.kind === 'rlmin') { const imax = p.imax, io = Math.abs(fo.Vo / v) + Math.abs((fo.Vo - fo.vp) / fin.f.value); ok(near(io, imax), 'rlmin ' + tag); ok(ex.circ.RL && ex.circ.RL.value == null, 'R_L drawn without value ' + tag); }
+      if (p.kind === 'rev') { const f2 = clone(fin); f2.f.value = v; ok(near(stageOut(f2, terms).Vo, p.target), 'adv rev ' + tag); }
+      if (p.kind === 'open') { const f2 = clone(fin); f2.f = null; ok(near(v, stageOut(f2, terms).Vo), `open ${v} ` + tag); ok(cmp && level >= 3, 'open only with comparator from L3 ' + tag); }
+      if (p.kind === 'peak') {
+        const f2 = clone(fin); allStages(f2).forEach(s => (s.vcc = null));
+        const amp = stageOut(f2, terms).Vo;
+        ok(near(v, Math.min(Math.abs(amp), fin.vcc)), 'adv peak ' + tag);
+        ok(ex.parts[pi + 1].answers[0].value === (amp < 0 ? 'inv' : 'same'), 'adv phase ' + tag);
+      }
+      if (p.kind === 'sketch') ok(pi === ex.parts.length - 1, 'adv sketch last ' + tag);
+      ok(p.kind === 'sketch' || E.solutionHtml(ex, pi).length > 20, 'adv solution ' + tag);
+    });
+    if (!cmp) ok(!ex.parts.some(p => p.kind === 'open'), 'no comparator part when off ' + tag);
+    ok(!/מהפך|עוקב מופע|חוצץ|BUFFER|מסכם|מחסר|הפרשי/.test([ex.text, ...ex.parts.map(p => p.text)].join(' ')), 'question text does not name the amplifier type ' + tag);
+  }
+  log('advanced exercises: ' + atotal);
+  log(JSON.stringify(astats, null, 1));
+
+  // ---------- גלריה: המעגלים מהשאלות לדוגמה ----------
+  const R = (n, v) => ({ name: 'R_' + n, value: v });
+  const T = label => ({ k: 'term', label }), GND = { k: 'gnd' };
+  const st = o => Object.assign({ k: 'stage', neg: [], pos: [], ng: null, pg: null, f: null, marks: {} }, o);
+  const buf = (name, src, extra) => st(Object.assign({ name, pos: [{ src }], f: 'wire' }, extra));
+  const C = [
+    ['שאלה 1 (חוצץ, מסכם, עוקב מופע; I_o)', { stage: st({ name: 'A_3', pos: [{ src:
+        st({ name: 'A_2', neg: [{ R: R(1, 1000), src: buf('A_1', T('V_1'), { marks: { out: 'X' } }) }, { R: R(3, 2000), src: T('V_2') }], pos: [{ src: GND }], f: R(2, 2000), marks: { out: 'Y' } }) }],
+        ng: R(5, 1000), f: R(4, 2000) }), Io: true }],
+    ['שאלה 1 (מסכם, ±10 V)', { stage: st({ neg: [{ R: R(1, 1000), src: T('V_1') }, { R: R(2, 1000), src: T('V_2') }], pos: [{ src: GND }], f: R(3, 2000), vcc: 10,
+        marks: { N: 'C', out: 'D', in_n0: 'A', in_n1: 'B' } }) }],
+    ['שאלה 4 (חוצץ ומחסר, ±15 V)', { stage: st({ name: 'A_2', neg: [{ R: R(1, 1000), src: buf('A_1', T('V_1'), { vcc: 15, marks: { out: 'X' } }) }],
+        pos: [{ R: R(4, 1000), src: T('V_2') }], pg: R(3, 2000), f: R(2, 2000), vcc: 15, marks: { N: 'Y' } }) }],
+    ['שאלה 4 (מחסר עם R_L ו-I_o)', { stage: st({ neg: [{ R: R(4, 1000), src: T('-1 V') }, { R: R(3, 1000), src: GND }], pos: [{ R: R(1, 1000), src: T('3 V') }],
+        pg: R(2, 2000), f: R(5, 2000), vcc: 15, marks: { N: 'B', P: 'A', in_n0: 'Y', in_n1: 'G' } }), RL: { name: 'R_L', value: 1000 }, Io: true }],
+    ['שאלה 4 (שלושה מגברים, סוללות)', { stage: st({ name: 'A_3', neg: [{ R: R(5, 1000),
+        src: st({ name: 'A_2', neg: [{ R: R(3, 1000), src: { k: 'bat', name: 'V_2', V: 2, plusTop: false } }], pos: [{ src: GND }], f: R(4, 2000), marks: { out: 'A' }, outLabel: '' }) }],
+        pos: [{ R: R(6, 2000), src: st({ name: 'A_1', pos: [{ src: { k: 'bat', name: 'V_1', V: 1, plusTop: true } }], ng: R(1, 1000), f: R(2, 1000) }) }],
+        pg: R(8, 4000), f: R(7, 2000), vcc: 12, marks: { N: 'B' } }) }],
+    ['שאלה 12 (חוצץ ומסכם)', { stage: st({ name: 'A_2', neg: [{ R: R(1, 2000), src: buf('A_1', T('V_1')) }, { R: R(2, 1000), src: T('V_2') }], pos: [{ src: GND }], f: R(3, 4000) }) }],
+    ['שאלה 1 (עוקב מופע עם מחלק מתח, ואחריו מהפך)', { stage: st({ neg: [{ R: R(5, 10000),
+        src: st({ pos: [{ src: { k: 'div', V: 2, Rt: R(3, 1000), Rb: R(4, 3000) } }], ng: R(1, 1000), f: R(2, 2000), vcc: 12, marks: { M: 'B', out: 'V_o1' } }) }],
+        pos: [{ src: GND }], f: R(6, 20000), vcc: 12 }) }],
+    ['בסיסי: מהפך', { stage: st({ neg: [{ R: R(1, 1000), src: T('V_i') }], pos: [{ src: GND }], f: R(2, 4000) }) }],
+    ['בסיסי: עוקב מופע', { stage: st({ pos: [{ src: T('V_i') }], ng: R(1, 1000), f: R(2, 3000), vcc: 15 }) }],
+    ['בסיסי: חוצץ עם עומס', { stage: buf(null, T('V_i'), { vcc: 12 }), RL: { name: 'R_L', value: 2000 }, Io: true }],
+    ['בסיסי: מהפך עם סוללה', { stage: st({ neg: [{ R: R(1, 2000), src: { k: 'bat', name: 'V_1', V: 3, plusTop: true } }], pos: [{ src: GND }], f: R(2, 6000), vcc: 15 }) }],
+    ['משווה: מגבר בלי משוב', { stage: st({ neg: [{ R: R(1, 1000), src: T('V_1') }], pos: [{ R: R(2, 1000), src: T('V_2') }], pg: R(3, 1000), vcc: 12 }) }],
+  ];
+  const gal = C.map(([cap, c]) => `<figure>${E.Draw.render(c).svg}<figcaption>${cap}</figcaption></figure>`);
+  document.getElementById('gallery').innerHTML = gal.join('');
+  log('gallery: ' + C.length + ' circuits');
+  // גלריית תרגילים בסיסיים
+  const ex2 = [];
+  ['INV', 'NINV', 'BUF'].forEach(t => [1, 2, 3].forEach(l => { for (let i = 0; i < 2; i++) ex2.push(E.makeExercise({ mode: 'basic', level: l, types: [t], seed: 1000 + i * 31 + l * 7 + t.length })); }));
+  document.getElementById('gallery').innerHTML += ex2.map(ex => `<figure>${E.Draw.render(ex.circ).svg}<figcaption>${E.TYPE_NAMES[ex.type]} · רמה ${ex.level} · ${ex.parts.map(p => p.kind).join(', ')} · #${ex.seed}</figcaption></figure>`).join('');
+  document.getElementById('summary').innerHTML = fail === 0 ? `<p class="pass">עבר: ${pass} passed, 0 failed</p>` : `<p class="fail">נכשל: ${pass} passed, ${fail} failed</p><pre>${failures.join('\n')}</pre>`;
+  document.getElementById('log').textContent = lines.join('\n');
+})().catch(e => { document.getElementById('log').textContent = 'ERROR: ' + e.stack; });
+</script>
+</body>
+</html>

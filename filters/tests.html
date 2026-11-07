@@ -87,7 +87,7 @@
 
   // ---------- גרסה, קישורים ופרקים בדף הנחיתה ----------
   {
-    const pages = { landing: '../index.html', ohm: '../ohm/index.html', mesh: '../mesh/index.html', ac: '../ac/index.html', filters: 'index.html' }, vers = {};
+    const pages = { landing: '../index.html', ohm: '../ohm/index.html', mesh: '../mesh/index.html', ac: '../ac/index.html', opamp: '../opamp/index.html', filters: 'index.html' }, vers = {};
     for (const [name, path] of Object.entries(pages)) {
       const url = new URL(path, location.href), src = await (await fetch(url, { cache: 'no-store' })).text();
       vers[name] = (/const VERSION = '(v\d+\.\d+)'/.exec(src) || [])[1];
@@ -97,6 +97,25 @@
         const r = await fetch(new URL(href, url), { cache: 'no-store' });
         ok(r.ok, `broken link "${href}" on ${name}`);
       }
+      // סמלים, מניפסט ותמונות: קישור יחסי לקובץ שקיים
+      const doc = new DOMParser().parseFromString(src, 'text/html');
+      const refs = [...doc.querySelectorAll('link[href]')].map(l => l.getAttribute('href'))
+        .concat([...doc.querySelectorAll('img[src]')].map(i => i.getAttribute('src')));
+      ok(refs.some(h => /favicon\.svg$/.test(h)) && refs.some(h => /manifest\.webmanifest$/.test(h)), `icons on ${name}`);
+      for (const href of refs) {
+        ok(!/^(\/|[a-z]+:)/i.test(href), `non-relative resource "${href}" on ${name}`);
+        ok((await fetch(new URL(href, url), { cache: 'no-store' })).ok, `missing resource "${href}" on ${name}`);
+      }
+      // תמונת התצוגה המקדימה חייבת כתובת מלאה (חריג מכוון): בודקים שהקובץ קיים כאן באותו נתיב
+      const og = doc.querySelector('meta[property="og:image"]')?.getAttribute('content') || '';
+      const BASE = 'https://rishoned.github.io/CircuitGym/';
+      ok(og.startsWith(BASE), `og:image on ${name}`);
+      ok((await fetch(new URL('../' + og.slice(BASE.length), location.href), { cache: 'no-store' })).ok, `og:image file on ${name}`);
+    }
+    {
+      const man = await (await fetch('../manifest.webmanifest', { cache: 'no-store' })).json();
+      ok(man.icons.length >= 3 && man.icons.some(i => i.purpose === 'maskable'), 'manifest icons');
+      for (const ic of man.icons) ok((await fetch(new URL('../' + ic.src, location.href), { cache: 'no-store' })).ok, `manifest icon ${ic.src}`);
     }
     log('versions: ' + JSON.stringify(vers));
     ok(new Set(Object.values(vers)).size === 1 && vers.filters === E.VERSION, 'site versions match');
@@ -104,7 +123,7 @@
     const chapters = [...land.querySelectorAll('h2.chapter')].map(h => h.textContent.trim() + ': ' +
       [...h.nextElementSibling.querySelectorAll('a.card')].map(a => a.getAttribute('href').split('/')[0]).join(','));
     log('landing: ' + chapters.join(' | '));
-    ok(chapters.join(' | ') === 'חשמל: ohm,mesh,ac | אלקטרוניקה: filters', 'landing chapters');
+    ok(chapters.join(' | ') === 'חשמל: ohm,mesh,ac | אלקטרוניקה: opamp,filters', 'landing chapters');
   }
 
   // ---------- ריצה המונית ----------
@@ -185,6 +204,31 @@
     ok(!/NaN|undefined|Infinity/.test(r.svg), 'bad svg ' + tag);
     ok((r.svg.match(/<polyline class="sig"/g) || []).length === 1 + (ex.options ? ex.options.length : 0), 'graph count ' + tag);
     ok(!/NaN|undefined|Infinity/.test(E.answerGraph(ex)), 'bad answer graph ' + tag);
+    {  // הגרף לבדיקה עצמית לא מציג ערכים של סעיפי מתח המוצא שאחריו
+      const si = ex.parts.findIndex(p => p.kind === 'sketch');
+      if (si >= 0) {
+        const labels = (E.answerGraph(ex, si).match(/class="lbl">([^<]*)</g) || []).map(m => m.replace(/.*>/, '').replace('<', ''));
+        const later = ex.parts.slice(si + 1).filter(p => p.kind === 'vo' || p.kind === 'rev').map(p => p.kind === 'vo' ? p.answers[0].value : p.rq.x);
+        ok(!labels.length || later.every(v => !labels.includes(String(Math.round(v * 100) / 100))), 'answer graph reveals a later answer ' + tag);
+        ok(labels.length === 0, 'answer graph shows values before they were asked ' + tag);
+      }
+      if (c.ft === 'LP') {   // ב-LP לא שואלים גם "רגע לפני" וגם "רגע אחרי" אותו מעבר (אותו ערך)
+        const ts = ex.parts.filter(p => p.kind === 'vo' && p.q.side !== 0).map(p => p.q.t);
+        ok(new Set(ts).size === ts.length, 'LP asks both sides of one transition ' + tag);
+      }
+      // הפתרון של סעיף לא מציג את תשובת סעיף מאוחר יותר
+      ex.parts.forEach((p, pi) => {
+        if (p.kind !== 'vo') return;
+        const txt = E.solutionHtml(ex, pi);
+        ex.parts.slice(pi + 1).filter(q => q.kind === 'vo' && Math.abs(q.answers[0].value - p.answers[0].value) > 0.006).forEach(q => {
+          const v = q.answers[0].value, s2 = String(Math.round(v * 100) / 100);
+          // רק ערכי V_o שמוצגים בפתרון (לא קפיצות המבוא, שהן נתון)
+          const vos = [...txt.matchAll(/V<sub>o<\/sub><\/bdi>\([^)]*\)(?: = [^=,<]*)* = (-?[\d.]+) V/g)].map(m => m[1]);
+          if (pi === 0 || !vos.length) stats.vosEmpty = (stats.vosEmpty || 0) + (vos.length ? 0 : 1);
+          ok(!vos.includes(s2), `solution of part ${pi + 1} reveals later answer ${s2} V ` + tag);
+        });
+      });
+    }
     ex.parts.forEach((p, pi) => ok(!/undefined|NaN/.test(E.solutionHtml(ex, pi)), 'bad solution ' + tag));
   }
   log(`exercises: ${total}   time: ${((performance.now() - t0) / 1000).toFixed(1)} s`);

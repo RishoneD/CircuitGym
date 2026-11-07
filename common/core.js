@@ -50,7 +50,7 @@
       format(x, unit, prefixes, sig = 4) {
         if (unit === '°') return numStr(Math.round(x * 100) / 100) + '°';
         const p = prefixes && unit !== 'rad/s' ? pickPrefix(x) : NONE;
-        return numStr(roundSig(x / p.f, sig)) + ' ' + p.p + unit;
+        return (numStr(roundSig(x / p.f, sig)) + ' ' + p.p + unit).trim();   // בלי יחידה (למשל הגבר): בלי רווח בסוף
       },
       // התשובה הנכונה: 2 ספרות אחרי הנקודה ביחידה הטבעית; ערך קטן מ-1: 3 ספרות משמעותיות
       formatAnswer(x, unit, prefixes) {
@@ -58,7 +58,7 @@
         const p = prefixes && unit !== 'rad/s' ? pickPrefix(x) : NONE;
         let v = x / p.f;
         v = Math.abs(v) >= 1 ? Math.round(v * 100) / 100 : roundSig(v, 3);
-        return numStr(v) + ' ' + p.p + unit;
+        return (numStr(v) + ' ' + p.p + unit).trim();
       },
       // קלט תלמיד: נקודה או פסיק עשרוני, בלי מפרידי אלפים; מינוס רק כשמותר. NaN אם לא תקין
       parseNumber(str, allowNeg) {

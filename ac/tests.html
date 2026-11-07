@@ -203,6 +203,10 @@
     const fs = fmtStats[`L${level} ${ex.kind}`] || (fmtStats[`L${level} ${ex.kind}`] = { n: 0, tries: 0, maxTries: 0 });
     fs.n++; fs.tries += ex.tries; fs.maxTries = Math.max(fs.maxTries, ex.tries);
     ok(types.includes(ex.ctype), 'ctype from selected ' + tag);
+    { // R, X_L, X_C, X, Z בפער של עד פי 100
+      const s = ex.state, zs = [s.R, s.Z, Math.abs(s.X)].concat(s.XL ? [s.XL] : [], s.XC ? [s.XC] : []);
+      ok(Math.max(...zs) <= 100 * Math.min(...zs) * (1 + 1e-9), 'impedance spread over 100x ' + tag);
+    }
     if (ex.meters) meters++; if (ex.src !== 'U') ut++; if (ex.u === 'V') vLetter++;
     // מבנה לפי רמה
     const n = ex.parts.length, qs = ex.parts.map(p => p.answers.map(a => a.q).join('+')).join(',');
