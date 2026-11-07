@@ -147,7 +147,7 @@
    *  render(ex) -> { svg, width }
    *  givens(ex) -> [{ sym, text }]
    *  parts(ex) -> [{ text?, answers: [answer] }]  (סעיף אחד = שאלה רגילה; ex.text הוא ההקדמה)
-   *     answer: { type:'num'|'angle'|'choice'|'binary', sym?, label?, value, unit?, prefix?, signed?, options?:[{value,label}] }
+   *     answer: { type:'num'|'angle'|'choice'|'binary', sym?, label?, value, unit?, prefix?, signed?, tol?, options?:[{value,label}] }
    *     prompt (אופציונלי): הנחיה במקום שורת "נעלם"
    *     או סעיף בדיקה עצמית: { text, selfcheck: { button, html } } (לא נבדק ולא נספר בציון)
    *  solution: { title, html(ex, partIndex), onCorrect: true/false }
@@ -351,7 +351,9 @@
         setFeedback('warn', `${one ? 'נא להקליד מספר בלבד' : 'נא למלא כל שדה' + sel} (${notes.join('; ')}). הניסיון לא נספר.`);
         return;
       }
-      const ok = A.map((a, i) => (a.type === 'choice' || a.type === 'binary' ? vals[i] === a.value : U.check(vals[i], a.value, a.unit)));
+      // a.tol (אופציונלי): סבולת יחסית לתשובה הזו בלבד, למשל ערך שנקרא מגרף
+      const ok = A.map((a, i) => (a.type === 'choice' || a.type === 'binary' ? vals[i] === a.value
+        : a.tol ? Math.abs(vals[i] - a.value) <= a.tol * Math.abs(a.value) : U.check(vals[i], a.value, a.unit)));
       const attempt = st.failed + 1, last = st.pi === st.parts.length - 1;
       const answerText = partAnswerText(part);
       if (ok.every(Boolean)) {

@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>בדיקות: תרגול משווים וחיישנים</title>
+<style>
+  body { font-family: "Segoe UI", Arial, sans-serif; margin: 16px; color: #1f2937; background: #f4f6f9; }
+  h1 { font-size: 20px; } h2 { font-size: 17px; margin-top: 24px; }
+  pre { background: #fff; border: 1px solid #d9dee6; border-radius: 8px; padding: 10px; direction: ltr; text-align: left; white-space: pre-wrap; font-size: 13px; }
+  .pass { color: #15803d; font-weight: bold; } .fail { color: #b42318; font-weight: bold; }
+  .gal { direction: ltr; display: grid; grid-template-columns: repeat(auto-fill, minmax(460px, 1fr)); gap: 12px; }
+  figure { margin: 0; background: #fff; border: 1px solid #d9dee6; border-radius: 8px; padding: 6px; min-width: 0; }
+  figcaption { font-size: 12px; color: #6b7280; direction: rtl; text-align: right; }
+  figure svg { display: block; width: 100%; height: auto; }
+</style>
+</head>
+<body>
+<h1>בדיקות מנוע המשווים והחיישנים וגלריית ציורים</h1>
+<p>דורש שרת מקומי.</p>
+<div id="summary"></div>
+<pre id="log"></pre>
+<h2>גלריה</h2>
+<div id="gallery" class="gal"></div>
+
+<script>
+(async function () {
+  const lines = [], log = s => lines.push(s);
+  await new Promise((res, rej) => { const c = document.createElement('script'); c.src = '../common/core.js'; c.onload = res; c.onerror = rej; document.head.appendChild(c); });
+  const html = await (await fetch('index.html', { cache: 'no-store' })).text();
+  const sc = document.createElement('script');
+  sc.textContent = new DOMParser().parseFromString(html, 'text/html').getElementById('engine').textContent;
+  document.head.appendChild(sc);
+  const E = window.Engine;
+
+  // ---------- גלריה: השאלות לדוגמה בציור של האתר ----------
+  const R = (name, value) => ({ k: 'R', name, value }), S = (type, name) => ({ k: 'sensor', type, name });
+  const C = [
+    ['שאלה 5: משווה, מקור יחיד 10 V, ייחוס ממחלק', { single: true, vcc: 10, plus: { k: 'term', label: 'V_i' }, minus: { k: 'div', top: R('R_2', 3000), bot: R('R_1', 2000) }, out: {} }],
+    ['שאלה 3א: ייחוס X, LED במוצא (נגד ואז נורית)', { single: true, vcc: 10, plus: { k: 'term', label: 'V_i' }, minus: { k: 'div', top: R('R_1', 8000), bot: R('R_2', 2000), mark: 'X' }, out: { load: 'RL', R3: R('R_3', 1000), Io: true } }],
+    ['שאלה 3ב: RTC במחלק', { single: true, vcc: 10, plus: { k: 'div', top: S('RTC'), bot: R('R_4', 100) }, minus: { k: 'div', top: R('R_1', 8000), bot: R('R_2', 2000), mark: 'X' }, out: { load: 'RL', R3: R('R_3', 1000), Io: true } }],
+    ['שאלה 3 (LDR): נקודות A, B', { single: true, vcc: 6, plus: { k: 'div', top: S('LDR'), bot: R('R', 10000), mark: 'B' }, minus: { k: 'div', top: R('R_1', 40000), bot: R('R_2', 20000), mark: 'A' }, out: { load: 'RL', R3: R('R_3', 450), Io: false } }],
+    ['שאלה 4: RTC, LED בקו המוצא', { single: true, vcc: 6, plus: { k: 'div', top: S('RTC'), bot: R('R_4', 600), mark: 'B' }, minus: { k: 'div', top: R('R_1', 20000), bot: R('R_2', 30000), mark: 'A' }, out: { load: 'series', R3: R('R_3', 500), Io: true } }],
+    ['±V_sat, ייחוס ב-+, נורית ואז נגד', { single: false, vsat: 12, vcc: 12, plus: { k: 'div', top: R('R_1', 10000), bot: R('R_2', 5000), mark: 'A' }, minus: { k: 'term', label: 'V_i' }, out: { load: 'LR', R3: R('R_3', 1000), Io: true } }],
+    ['PTC למטה במחלק', { single: true, vcc: 9, plus: { k: 'div', top: R('R_4', 300), bot: S('PTC'), mark: 'B' }, minus: { k: 'div', top: R('R_1', 6000), bot: R('R_2', 3000), mark: 'A' }, out: { load: 'RL', R3: R('R_3', 1000), Io: true } }],
+    ['FSR', { single: true, vcc: 12, plus: { k: 'div', top: R('R_1', 10000), bot: R('R_2', 10000), mark: 'A' }, minus: { k: 'div', top: S('FSR'), bot: R('R_4', 20000), mark: 'B' }, out: { load: 'RL', R3: R('R_3', 500), Io: true } }],
+    ['פוטנציומטר כחיישן זווית', { single: false, vsat: 10, vcc: 10, plus: { k: 'div', top: R('R_4', 5000), bot: S('POT'), mark: 'B' }, minus: { k: 'div', top: R('R_1', 4000), bot: R('R_2', 1000), mark: 'A' }, out: { load: 'RL', R3: R('R_3', 1000), Io: true } }],
+    ['חיישן קול', { single: true, vcc: 10, plus: { k: 'sound', mark: 'B' }, minus: { k: 'div', top: R('R_1', 20000), bot: R('R_2', 5000), mark: 'A' }, out: { load: 'RL', R3: R('R_3', 400), Io: true } }],
+  ];
+  const gal = C.map(([cap, c]) => `<figure>${E.Draw.render(c).svg}<figcaption>${cap}</figcaption></figure>`);
+  // אופייני החיישנים
+  Object.entries(E.SENSORS).forEach(([k, list]) => list.forEach((ch, i) => {
+    const p = ch.pts[Math.min(2, ch.pts.length - 1)];
+    gal.push(`<figure>${E.Draw.chartSvg(ch, [p])}<figcaption>אופיין ${k}${list.length > 1 ? ' ' + (i + 1) : ''} (קווי עזר בנקודה ${p.join(', ')})</figcaption></figure>`);
+  }));
+  document.getElementById('gallery').innerHTML = gal.join('');
+  // העקומה עוברת בדיוק בנקודות
+  let bad = 0;
+  Object.values(E.SENSORS).forEach(list => list.forEach(ch => ch.pts.forEach(([x, y]) => { if (Math.abs(E.valueAt(ch, x) - y) > 1e-9) bad++; })));
+  log('gallery: ' + C.length + ' circuits; curve misses at nodes: ' + bad);
+
+  // ---------- תרגילים מול חישוב בלתי תלוי מתוך הציור ----------
+  let pass = 0, fail = bad;
+  const failures = [];
+  const ok = (c, msg) => { if (c) pass++; else { fail++; if (failures.length < 40) failures.push(msg); } };
+  const near = (a, b) => Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(b));
+  const U = E.Units;
+  const N = +(new URLSearchParams(location.search).get('n') || 120);
+  const stats = {};
+  let total = 0;
+  // ערך צומת מאופיין: רק בנקודות הרשת עצמן (מתוך רשימת הנקודות, בלי אינטרפולציה)
+  const nodeY = (ch, x) => { const p = ch.pts.find(q => Math.abs(q[0] - x) < 1e-9); return p ? p[1] * (ch.y.unit === 'kΩ' ? 1000 : 1) : null; };
+  for (let level = 1; level <= 5; level++) for (const sens of [['LDR'], ['RTC'], ['PTC'], ['FSR'], ['POT'], ['SOUND']]) for (let i = 0; i < (level >= 3 && level <= 4 ? N : N / 3); i++) {
+    const seed = (total * 2654435761 + 7) >>> 0; total++;
+    let ex;
+    try { ex = E.makeExercise({ level, sensors: sens, seed }); } catch (e) { ok(false, `threw ${e.message} L${level} ${sens}`); continue; }
+    const tag = `(L${level} ${sens} seed ${seed})`, c = ex.circ, m = ex.m;
+    const key = `L${level}${level >= 3 && level <= 4 ? ' ' + sens : ''}: ${ex.parts.map(p => p.kind).join(',')}`;
+    stats[key] = (stats[key] || 0) + 1;
+    ok(JSON.stringify(E.makeExercise({ level, sensors: sens, seed }).parts) === JSON.stringify(ex.parts), 'deterministic ' + tag);
+    const rail = c.vcc, high = c.single ? rail : c.vsat, low = c.single ? 0 : -c.vsat;
+    // מקור לכל מבוא: מחלק → V_CC·Rb/(Rt+Rb); חיישן לפי ערך נתון
+    const divV = (d, Rs) => { const r = e => (e.k === 'R' ? e.value : Rs); return rail * r(d.bot) / (r(d.top) + r(d.bot)); };
+    const ref = c.plus.k === 'div' && c.plus.top.k === 'R' && c.plus.bot.k === 'R' ? 'plus' : 'minus';
+    const sig = ref === 'plus' ? c.minus : c.plus, refD = ref === 'plus' ? c.plus : c.minus, Vref = divV(refD);
+    const out = vs => { const vp = ref === 'plus' ? Vref : vs, vn = ref === 'plus' ? vs : Vref; return vp > vn ? high : low; };
+    const sigV = Rs => (sig.k === 'div' ? divV(sig, Rs) : Rs);   // בחיישן קול: הערך הוא המתח עצמו
+    const ledOnAt = vs => out(vs) === high;
+    const Io = c.out.R3 && c.out.R3.value ? (high - m.VLED) / c.out.R3.value : null;
+    ex.parts.forEach(p => (p.answers || []).forEach(a => { if (a.type === 'num') ok(Math.abs(a.value) < 1e-12 || U.isClean(a.value), `clean ${a.sym}=${a.value} ` + tag); }));
+    const svg = E.Draw.renderEx(ex).svg;
+    ex.parts.forEach((p, pi) => {
+      const A = p.answers || [], v = A[0] && A[0].value;
+      (p.text.match(/נקודה ([A-Z])/g) || []).forEach(s => ok(new RegExp(`class="pt">${s.slice(-1)}<`).test(svg), 'point drawn ' + tag));
+      if (p.kind === 'vref') ok(near(v, Vref), 'vref ' + tag);
+      if (p.kind === 'out') { const vi = +p.text.match(/V_i = ([\d.]+)/)[1]; ok(A[0].value === (out(vi) === high ? 'hi' : 'lo'), 'out ' + tag); }
+      if (p.kind === 'led') {
+        const vs = level <= 2 ? +p.text.match(/V_i = ([\d.]+)/)[1] : sig.k === 'div' ? divV(sig, m.sig.given) : m.sig.given;
+        ok(A[0].value === (ledOnAt(vs) ? 'on' : 'off'), 'led ' + tag);
+        if (level === 3) ok(ex.text.includes(sig.k === 'div' ? E.fmtR(m.sig.given).replace(' ', ' ') : String(m.sig.given)), 'given value in text ' + tag);
+      }
+      if (p.kind === 'vb') ok(near(v, divV(sig, m.sig.given)), 'vb ' + tag);
+      if (p.kind === 'vrange') { ok(near(A[1].value, Vref), 'vrange boundary ' + tag); ok(A[0].value === (ledOnAt(Vref + 0.05) ? 'gt' : 'lt') && ledOnAt(Vref + 0.05) !== ledOnAt(Vref - 0.05), 'vrange dir ' + tag); }
+      if (p.kind === 'rsw') ok(near(divV(sig, v), Vref), 'rsw ' + tag);
+      if (p.kind === 'io') ok(near(v, Io), 'io ' + tag);
+      if (p.kind === 'r3') { ok(c.out.R3.value == null, 'R3 hidden ' + tag); const I = +p.text.match(/([\d.]+) mA/)[1] / 1000; ok(near((high - m.VLED) / v, I), 'r3 ' + tag); }
+      if (p.kind === 'read') { const ch = m.sig.ch; ok(near(v, nodeY(ch, p.at[0])), 'read ' + tag); ok(A[0].tol === 0.05, 'read tol ' + tag); }
+      if (p.kind === 'crange') {
+        const ch = m.sig.ch, x = A[1].value, R = nodeY(ch, x);
+        ok(R != null && near(sigV(R), Vref), `crange switch ${x} ` + tag);
+        // כיוון: בנקודות הרשת השכנות (בלי אינטרפולציה)
+        const i = ch.pts.findIndex(q => Math.abs(q[0] - x) < 1e-9), nb = [ch.pts[i - 1], ch.pts[i + 1]].filter(Boolean);
+        const after = ch.pts[i + 1], before = ch.pts[i - 1];
+        if (after) ok((A[0].value === 'gt') === ledOnAt(sigV(after[1] * (ch.y.unit === 'kΩ' ? 1000 : 1))), 'crange dir above ' + tag);
+        if (before) ok((A[0].value === 'lt') === ledOnAt(sigV(before[1] * (ch.y.unit === 'kΩ' ? 1000 : 1))), 'crange dir below ' + tag);
+        ok(A[1].tol >= 0.05, 'crange tol ' + tag);
+      }
+      if (p.kind === 't1' || p.kind === 'dur') {
+        // סימולציה בזמן של הגל המשולש
+        const s = m.sig, n = 200000, T = s.T, vi = t => { const u = (t % T) / T; return u < 0.5 ? s.vmin + (s.vmax - s.vmin) * 2 * u : s.vmax - (s.vmax - s.vmin) * 2 * (u - 0.5); };
+        let first = null, hi = 0, prev = out(vi(0));
+        for (let k = 1; k <= n; k++) { const t = T * k / n, o = out(vi(t)); if (o !== prev && first == null) first = t; if (o === high) hi += T / n; prev = o; }
+        if (p.kind === 't1') ok(Math.abs(v - first) < T * 1e-4, `t1 ${v} vs ${first} ` + tag);
+        else ok(Math.abs(v - hi) < T * 1e-3, `dur ${v} vs ${hi} ` + tag);
+      }
+      if (p.kind === 'sketch') ok(pi === ex.parts.length - 1, 'sketch last ' + tag);
+      ok(p.kind === 'sketch' || E.solutionHtml(ex, pi).length > 20, 'solution ' + tag);
+    });
+    // מבנה לפי רמה
+    ok(level >= 2 ? true : !c.out.load, 'no LED at level 1 ' + tag);
+    ok(level === 2 || level === 3 || level === 4 ? !!c.out.load : true, 'LED at levels 2-4 ' + tag);
+    if (level === 3 || level === 4) ok(sig.k === (sens[0] === 'SOUND' ? 'sound' : 'div'), 'sensor kind ' + tag);
+    // ערכים בתחום האמיתי של החיישן, ונקודת מיתוג לא בקצה הגרף
+    if (level === 3 && sig.k === 'div') {
+      const ys = E.SENSORS[sens[0]].flatMap(ch => ch.pts.map(p => p[1] * (ch.y.unit === 'kΩ' ? 1000 : 1)));
+      const rsw = ex.parts.find(p => p.kind === 'rsw').answers[0].value;
+      ok(m.sig.given <= Math.max(...ys) && m.sig.given >= Math.min(...ys.filter(y => y > 0)) / 1.0001 - 10 && rsw <= Math.max(...ys), 'L3 values within sensor range ' + tag);
+    }
+    if (level === 4) { const ch = m.sig.ch, x = ex.parts.find(p => p.kind === 'crange').answers[1].value; ok(x !== ch.pts[0][0] && x !== ch.pts[ch.pts.length - 1][0], 'switch point not at graph edge ' + tag); }
+    ok(!/V_|_/.test(ex.parts.flatMap(p => (p.answers || []).filter(a => a.type === 'choice').flatMap(a => a.options.map(o => o.label))).join(' ')), 'choice labels without raw symbols ' + tag);
+  }
+  log('exercises: ' + total);
+  log(JSON.stringify(stats, null, 1));
+  const ex2 = [];
+  [1, 2, 3, 4, 5].forEach(l => ['LDR', 'RTC', 'SOUND'].forEach((s, i) => ex2.push(E.makeExercise({ level: l, sensors: [s], seed: 500 + l * 11 + i }))));
+  document.getElementById('gallery').innerHTML += ex2.map(ex => `<figure>${E.Draw.renderEx(ex).svg}<figcaption>רמה ${ex.level} · ${ex.parts.map(p => p.kind).join(', ')} · #${ex.seed}</figcaption></figure>`).join('');
+  document.getElementById('summary').innerHTML = fail === 0 ? `<p class="pass">עבר: ${pass} passed, 0 failed</p>` : `<p class="fail">נכשל: ${pass} passed, ${fail} failed</p><pre>${failures.join('\n')}</pre>`;
+  document.getElementById('log').textContent = lines.join('\n');
+})().catch(e => { document.getElementById('log').textContent = 'ERROR: ' + e.stack; });
+</script>
+</body>
+</html>
