@@ -1,0 +1,965 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>תרגול טרנזיסטור</title>
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="../assets/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
+<link rel="manifest" href="../manifest.webmanifest">
+<meta name="theme-color" content="#1d4ed8">
+<meta name="description" content="תרגול אינטראקטיבי בחשמל ואלקטרוניקה: מעגלים טוריים ומקביליים, זרמי חוגים, מעגלי AC, מגברי שרת, משווים וחיישנים, טרנזיסטור ומסננים.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="CircuitGym">
+<meta property="og:locale" content="he_IL">
+<meta property="og:title" content="תרגול טרנזיסטור">
+<meta property="og:description" content="תרגול אינטראקטיבי בחשמל ואלקטרוניקה: מעגלים טוריים ומקביליים, זרמי חוגים, מעגלי AC, מגברי שרת, משווים וחיישנים, טרנזיסטור ומסננים.">
+<meta property="og:url" content="https://rishoned.github.io/CircuitGym/transistor/">
+<meta property="og:image" content="https://rishoned.github.io/CircuitGym/assets/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="הלוגו של CircuitGym">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="../common/style.css">
+</head>
+<body>
+<header>
+  <a class="mark" href="../index.html" aria-label="CircuitGym - לדף הראשי"><img src="../assets/logo-symbol.svg" alt="" width="27" height="30"></a>
+  <h1>תרגול טרנזיסטור</h1>
+  <span class="ver" dir="ltr" id="ver"></span>
+  <a class="home" href="../index.html">→ לדף הראשי</a>
+</header>
+
+<main>
+  <section id="setup" class="card">
+    <h2>הגדרות תרגול</h2>
+    <fieldset>
+      <legend>סוג התרגול</legend>
+      <label class="opt"><input type="radio" name="mode" id="mBasic" value="basic" checked> תרגול בסיסי (DC)</label>
+      <label class="opt"><input type="radio" name="mode" id="mAdv" value="adv"> תרגול מתקדם (מגבר ומתג)</label>
+    </fieldset>
+    <fieldset id="tracksBox" hidden>
+      <legend>נושאים (אפשר לבחור את שניהם)</legend>
+      <label class="opt"><input type="checkbox" id="tAmp" checked> טרנזיסטור כמגבר</label>
+      <label class="opt"><input type="checkbox" id="tSw" checked> טרנזיסטור כמתג</label>
+    </fieldset>
+    <label class="row">רמת קושי התחלתית:
+      <select id="level"></select>
+    </label>
+    <p id="setNote" class="note"></p>
+    <button id="start" class="primary">התחלה</button>
+  </section>
+  <section id="play" class="card" hidden></section>
+</main>
+
+<footer>נוצר על ידי ראשון דיבקר בעזרת Claude · <span dir="ltr" id="ver2"></span></footer>
+
+<script src="../common/core.js"></script>
+<!-- ======================= מנוע (ללא DOM) ======================= -->
+<script id="engine">
+(function (global) {
+  'use strict';
+
+  const VERSION = 'v2.2';
+  const { makeRng, randomSeed } = global.Core;
+  const Units = global.Core.makeUnits({ prefixes: ['M', 'k', '', 'm', 'µ'], tol: 0.01 });
+  const { numStr } = Units;
+
+  // ---------------- Draw (SVG) ----------------
+  const rd = x => Math.round(x * 10) / 10;
+  const ln = (x1, y1, x2, y2, cls) => `<line${cls ? ` class="${cls}"` : ''} x1="${rd(x1)}" y1="${rd(y1)}" x2="${rd(x2)}" y2="${rd(y2)}"/>`;
+  const txt = (x, y, s, anchor, extra) => `<text x="${rd(x)}" y="${rd(y)}" text-anchor="${anchor || 'middle'}"${extra || ''}>${s}</text>`;
+  // קודם המינוס, ואחר כך הכתב התחתון: אחרת גם dy="-4" של החזרת קו הבסיס הופך ל-"−4" ולא תקף
+  const lab = s => String(s).replace(/-(?=\d)/g, '−').replace(/([A-Za-z])_([0-9A-Za-z]+)/g, '$1<tspan dy="4" font-size="11">$2</tspan><tspan dy="-4">​</tspan>');
+  const fmtR = r => (r >= 1e6 ? numStr(r / 1e6) + ' MΩ' : r >= 1000 ? numStr(r / 1000) + ' kΩ' : numStr(r) + ' Ω');
+  const fmtV = v => numStr(v).replace('-', '−') + ' V';
+  const STYLE = `<style>.cm line,.cm polyline,.cm path,.cm polygon,.cm ellipse,.cm rect{stroke:#1f2937;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}` +
+    `.cm text{fill:#1f2937}.cm .fill{fill:#1f2937;stroke:none}.cm .term{fill:#fff;stroke:#1f2937;stroke-width:1.6}.cm .amp{fill:#fff}` +
+    `.cm .pt{fill:#d9480f;font-weight:bold}.cm .sm{font-size:12px}.cm .thin{stroke-width:1.4}.cm .grid{stroke:#d1d5db;stroke-width:1}` +
+    `.cm .ax{stroke-width:1.6}.cm .curve{stroke:#111827;stroke-width:2.6}.cm .guide{stroke:#6b7280;stroke-width:1.2;stroke-dasharray:4 3}</style>`;
+  const svgWrap = (w, h, body) => `<svg xmlns="http://www.w3.org/2000/svg" class="cm" viewBox="0 0 ${rd(w)} ${rd(h)}" width="${rd(w)}" height="${rd(h)}" ` +
+    `direction="ltr" font-family="Arial, Helvetica, sans-serif" font-size="14" role="img">${STYLE}<rect width="100%" height="100%" fill="#fff" style="stroke:none"/>${body}</svg>`;
+  const g = (x, y, body) => `<g transform="translate(${rd(x)},${rd(y)})">${body}</g>`;
+  const dot = (x, y) => `<circle class="fill" cx="${rd(x)}" cy="${rd(y)}" r="3.5"/>`;
+  const term = (x, y) => `<circle class="term" cx="${rd(x)}" cy="${rd(y)}" r="4"/>`;
+  const ground = (x, y) => ln(x, y, x, y + 10) + ln(x - 12, y + 10, x + 12, y + 10) + ln(x - 7, y + 15, x + 7, y + 15) + ln(x - 2.5, y + 20, x + 2.5, y + 20);
+  const arrowHead = (x, y, dir) => {
+    const d = { up: 'l-5,10 h10 z', down: 'l-5,-10 h10 z', right: 'l-10,-5 v10 z', left: 'l10,-5 v10 z' }[dir];
+    return `<path class="fill" d="M${rd(x)},${rd(y)} ${d}"/>`;
+  };
+  const ptLabel = (x, y, s, an) => txt(x, y, lab(s), an || 'middle', ' class="pt"');
+  const zig = (x, cy, h) => {   // זיגזג אנכי באורך 2h סביב cy
+    const pts = [[x, cy - h]];
+    for (let i = 0; i < 6; i++) pts.push([x + (i % 2 ? 7 : -7), cy - h + 2 * h * (2 * i + 1) / 12]);
+    pts.push([x, cy + h]);
+    return `<polyline points="${pts.map(p => rd(p[0]) + ',' + rd(p[1])).join(' ')}"/>`;
+  };
+  // רכיב אנכי בין y1 ל-y2: נגד או חיישן. התוויות משמאל
+  const SENSOR_LABEL = { LDR: 'LDR', RTC: 'RTC', PTC: 'PTC', FSR: 'FSR', POT: 'R_P' };
+  function vElem(x, y1, y2, e) {
+    const cy = (y1 + y2) / 2, o = [];
+    if (e.k === 'R') {
+      o.push(ln(x, y1, x, cy - 22), ln(x, cy + 22, x, y2), zig(x, cy, 22));
+      o.push(txt(x - 14, cy - 3, lab(e.name), 'end'), txt(x - 14, cy + 14, fmtR(e.value), 'end'));
+      return o.join('');
+    }
+    // חיישן: נגד בתוך אליפסה, וסימן לפי הסוג
+    o.push(ln(x, y1, x, cy - 26), ln(x, cy + 26, x, y2), zig(x, cy, 17), `<ellipse cx="${rd(x)}" cy="${rd(cy)}" rx="15" ry="26" class="thin"/>`);
+    if (e.type === 'LDR') {   // שני חיצים נכנסים (אור)
+      [[-34, -26], [-34, -12]].forEach(([dx, dy]) => o.push(ln(x + dx, cy + dy, x - 18, cy + dy + 12, 'thin'), arrowAt(x - 16, cy + dy + 13.5, x + dx, cy + dy)));
+    } else if (e.type === 'RTC' || e.type === 'PTC') {   // קו אלכסוני עם "רגל" (תרמיסטור)
+      o.push(`<polyline class="thin" points="${rd(x - 14)},${rd(cy + 22)} ${rd(x - 6)},${rd(cy + 22)} ${rd(x + 14)},${rd(cy - 22)}"/>`, txt(x + 20, cy - 16, e.type === 'RTC' ? '−t°' : '+t°', 'start', ' class="sm"'));
+    } else if (e.type === 'FSR') {   // חץ לחיצה
+      o.push(ln(x + 34, cy, x + 19, cy, 'thin'), arrowHead(x + 16, cy, 'left'), txt(x + 38, cy + 5, 'F', 'start', ' class="sm"'));
+    } else if (e.type === 'POT') {   // נגד משתנה: חץ אלכסוני
+      o.push(ln(x - 16, cy + 20, x + 14, cy - 18, 'thin'), arrowAt(x + 16, cy - 21, x - 16, cy + 20));
+    }
+    o.push(txt(x - 22, cy + 5, lab(e.name || SENSOR_LABEL[e.type]), 'end'));
+    return o.join('');
+  }
+  // ראש חץ בנקודה (x,y), בכיוון מ-(fx,fy)
+  function arrowAt(x, y, fx, fy) {
+    const a = Math.atan2(y - fy, x - fx), L = 8, w = 4;
+    const p = (r, t) => [x - L * Math.cos(a) + t * Math.sin(a) * -1 * w * 0 + r, 0];
+    const bx = x - L * Math.cos(a), by = y - L * Math.sin(a), nx = -Math.sin(a) * w, ny = Math.cos(a) * w;
+    return `<path class="fill" d="M${rd(x)},${rd(y)} L${rd(bx + nx)},${rd(by + ny)} L${rd(bx - nx)},${rd(by - ny)} z"/>`;
+  }
+  // נורית LED: vertical = מלמעלה למטה (אנודה למעלה), אחרת משמאל לימין
+  function led(xc, yc, vertical, label) {
+    const o = [];
+    if (vertical) {
+      o.push(`<polygon class="fill" points="${rd(xc - 9)},${rd(yc - 7)} ${rd(xc + 9)},${rd(yc - 7)} ${rd(xc)},${rd(yc + 7)}"/>`, ln(xc - 9, yc + 7, xc + 9, yc + 7));
+      [[0, 0], [5, 7]].forEach(([dx, dy]) => o.push(ln(xc + 12 + dx, yc - 2 + dy, xc + 22 + dx, yc - 10 + dy, 'thin'), arrowAt(xc + 24 + dx, yc - 11.5 + dy, xc + 12 + dx, yc - 2 + dy)));
+      if (label) o.push(txt(xc - 14, yc + 5, label, 'end'));
+    } else {
+      o.push(`<polygon class="fill" points="${rd(xc - 7)},${rd(yc - 9)} ${rd(xc - 7)},${rd(yc + 9)} ${rd(xc + 7)},${rd(yc)}"/>`, ln(xc + 7, yc - 9, xc + 7, yc + 9));
+      [[0, 0], [7, 2]].forEach(([dx, dy]) => o.push(ln(xc + 2 + dx, yc - 12 - dy, xc + 10 + dx, yc - 22 - dy, 'thin'), arrowAt(xc + 11 + dx, yc - 24 - dy, xc + 2 + dx, yc - 12 - dy)));
+      if (label) o.push(txt(xc, yc + 26, label));
+    }
+    return o.join('');
+  }
+
+  // ---------------- אופייני חיישנים (גרף) ----------------
+  /* ch: { x: { label, unit, min, max, step, log? }, y: { label, unit, min, max, step }, pts: [[x,y],...] (על נקודות רשת) }
+   * העקומה עוברת בדיוק בנקודות (אינטרפולציה מונוטונית). שואלים רק בנקודות שערך ה-y שלהן על קו רשת. guides: נקודות לסימון בקווים מקווקווים */
+  const SENSORS = {
+    LDR: [
+      { x: { label: 'עוצמת הארה', unit: 'lux', min: 1, max: 10000, log: true }, y: { label: 'R', unit: 'kΩ', min: 0, max: 120, step: 20 },
+        pts: [[1, 100], [10, 80], [100, 60], [1000, 40], [10000, 20]] },
+      { x: { label: 'עוצמת הארה', unit: 'lux', min: 0, max: 20, step: 1 }, y: { label: 'R', unit: 'kΩ', min: 0, max: 120, step: 10 },
+        pts: [[0, 120], [1, 90], [2, 70], [4, 40], [7, 20], [12, 10], [20, 5]] },
+    ],
+    RTC: [{ x: { label: 'T', unit: '°C', min: 0, max: 70, step: 10 }, y: { label: 'RTC', unit: 'kΩ', min: 0, max: 1, step: 0.1 },
+      pts: [[0, 1], [10, 0.6], [20, 0.4], [40, 0.2], [60, 0.1], [70, 0.07]] }],
+    PTC: [{ x: { label: 'T', unit: '°C', min: 0, max: 70, step: 10 }, y: { label: 'PTC', unit: 'kΩ', min: 0, max: 1.2, step: 0.1 },
+      pts: [[0, 0.1], [20, 0.2], [40, 0.4], [60, 0.9], [70, 1.2]] }],
+    FSR: [{ x: { label: 'כוח', unit: 'N', min: 0, max: 20, step: 2 }, y: { label: 'R', unit: 'kΩ', min: 0, max: 100, step: 10 },
+      pts: [[2, 100], [4, 60], [6, 40], [8, 30], [10, 25], [14, 20], [20, 15]] }],
+    POT: [{ x: { label: 'זווית', unit: '°', min: 0, max: 300, step: 30 }, y: { label: 'R_P', unit: 'kΩ', min: 0, max: 10, step: 1 },
+      pts: Array.from({ length: 11 }, (_, i) => [30 * i, i]) }],
+    SOUND: [{ x: { label: 'עוצמת קול', unit: 'dB', min: 40, max: 100, step: 10 }, y: { label: 'V_S', unit: 'V', min: 0, max: 6, step: 1 },
+      pts: Array.from({ length: 7 }, (_, i) => [40 + 10 * i, i]) }],
+  };
+  // אינטרפולציה מונוטונית (Fritsch–Carlson) בציר x (לוגריתמי אם log)
+  function monotone(pts) {
+    const n = pts.length, xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+    const d = [], m = new Array(n);
+    for (let i = 0; i < n - 1; i++) d.push((ys[i + 1] - ys[i]) / (xs[i + 1] - xs[i]));
+    m[0] = d[0]; m[n - 1] = d[n - 2];
+    for (let i = 1; i < n - 1; i++) m[i] = d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2;
+    for (let i = 0; i < n - 1; i++) {
+      if (d[i] === 0) { m[i] = m[i + 1] = 0; continue; }
+      const a = m[i] / d[i], b = m[i + 1] / d[i], h = a * a + b * b;
+      if (h > 9) { const t = 3 / Math.sqrt(h); m[i] = t * a * d[i]; m[i + 1] = t * b * d[i]; }
+    }
+    return x => {
+      let i = 0;
+      while (i < n - 2 && x > xs[i + 1]) i++;
+      const h = xs[i + 1] - xs[i], t = (x - xs[i]) / h, t2 = t * t, t3 = t2 * t;
+      return (2 * t3 - 3 * t2 + 1) * ys[i] + (t3 - 2 * t2 + t) * h * m[i] + (-2 * t3 + 3 * t2) * ys[i + 1] + (t3 - t2) * h * m[i + 1];
+    };
+  }
+  function chartSvg(ch, guides, caption) {
+    const W = 480, H = 300, x0 = 62, x1 = W - 70, y0 = H - 50, y1 = 30, o = [];
+    const lx = v => (ch.x.log ? Math.log10(v) : v), X = v => x0 + (lx(v) - lx(ch.x.min)) / (lx(ch.x.max) - lx(ch.x.min)) * (x1 - x0);
+    const Y = v => y0 - (v - ch.y.min) / (ch.y.max - ch.y.min) * (y0 - y1);
+    // רשת
+    const xt = ch.x.log ? [1, 10, 100, 1000, 10000].filter(v => v >= ch.x.min && v <= ch.x.max) : Array.from({ length: Math.round((ch.x.max - ch.x.min) / ch.x.step) + 1 }, (_, i) => +(ch.x.min + i * ch.x.step).toFixed(6));
+    const yt = Array.from({ length: Math.round((ch.y.max - ch.y.min) / ch.y.step) + 1 }, (_, i) => +(ch.y.min + i * ch.y.step).toFixed(6));
+    xt.forEach(v => o.push(ln(X(v), y0, X(v), y1, 'grid'), txt(X(v), y0 + 16, numStr(v), 'middle', ' class="sm"')));
+    if (ch.x.log) for (let dec = 1; dec < ch.x.max; dec *= 10) for (let k = 2; k < 10; k++) if (dec * k < ch.x.max) o.push(ln(X(dec * k), y0, X(dec * k), y1, 'grid').replace('class="grid"', 'class="grid" style="opacity:.45"'));
+    yt.forEach(v => o.push(ln(x0, Y(v), x1, Y(v), 'grid'), txt(x0 - 6, Y(v) + 4, numStr(v), 'end', ' class="sm"')));
+    o.push(ln(x0, y0, x1 + 14, y0, 'ax'), arrowHead(x1 + 20, y0, 'right'), ln(x0, y0, x0, y1 - 14, 'ax'), arrowHead(x0, y1 - 20, 'up'));
+    o.push(txt(x1 + 14, y0 + 36, `${ch.x.label} [${ch.x.unit}]`, 'end', ' class="sm"'), txt(x0 + 6, y1 - 10, lab(`${ch.y.label} [${ch.y.unit}]`), 'start', ' class="sm"'));
+    // העקומה: אינטרפולציה בציר x (לוגריתמי אם צריך)
+    const f = monotone(ch.pts.map(p => [lx(p[0]), p[1]])), a = lx(ch.pts[0][0]), b = lx(ch.pts[ch.pts.length - 1][0]);
+    const pts = Array.from({ length: 161 }, (_, i) => { const u = a + (b - a) * i / 160; return rd(x0 + (u - lx(ch.x.min)) / (lx(ch.x.max) - lx(ch.x.min)) * (x1 - x0)) + ',' + rd(Y(f(u))); });
+    o.push(`<polyline class="curve" points="${pts.join(' ')}"/>`);
+    (guides || []).forEach(([gx, gy]) => o.push(ln(X(gx), y0, X(gx), Y(gy), 'guide'), ln(x0, Y(gy), X(gx), Y(gy), 'guide')));
+    if (caption) o.push(txt(W / 2, H - 6, caption, 'middle', ' font-weight="bold"'));
+    return svgWrap(W, H, o.join(''));
+  }
+  const valueAt = (ch, x) => { const lx = v => (ch.x.log ? Math.log10(v) : v); return monotone(ch.pts.map(p => [lx(p[0]), p[1]]))(lx(x)); };
+
+  // ---------------- ציור הטרנזיסטור ----------------
+  // נגד אופקי: שם מעל, ערך מתחת (ערך null = נעלם)
+  function hRes(x1, x2, y, r) {
+    const cx = (x1 + x2) / 2, pts = [[cx - 22, y]];
+    for (let i = 0; i < 6; i++) pts.push([cx - 22 + 44 * (2 * i + 1) / 12, y + (i % 2 ? 7 : -7)]);
+    pts.push([cx + 22, y]);
+    return ln(x1, y, cx - 22, y) + ln(cx + 22, y, x2, y) + `<polyline points="${pts.map(p => rd(p[0]) + ',' + rd(p[1])).join(' ')}"/>` +
+      txt(cx, y - 14, lab(r.name)) + (r.value == null ? '' : txt(cx, y + 25, fmtR(r.value)));
+  }
+  // נגד אנכי עם תוויות בצד נתון
+  function vRes(x, y1, y2, r, side) {
+    const cy = (y1 + y2) / 2, dx = side === 'right' ? 14 : -14, an = side === 'right' ? 'start' : 'end';
+    return ln(x, y1, x, cy - 22) + ln(x, cy + 22, x, y2) + zig(x, cy, 22) +
+      txt(x + dx, r.value == null ? cy + 5 : cy - 3, lab(r.name), an) + (r.value == null ? '' : txt(x + dx, cy + 14, fmtR(r.value), an));
+  }
+  // קבל אופקי (בקו) או אנכי
+  const capH = (xa, xb, y, name) => { const x1 = Math.min(xa, xb), x2 = Math.max(xa, xb), cx = (x1 + x2) / 2; return ln(x1, y, cx - 5, y) + ln(cx + 5, y, x2, y) + ln(cx - 5, y - 13, cx - 5, y + 13) + ln(cx + 5, y - 13, cx + 5, y + 13) + txt(cx, y - 20, lab(name)); };
+  const capV = (x, ya, yb, name) => { const y1 = Math.min(ya, yb), y2 = Math.max(ya, yb), cy = (y1 + y2) / 2; return ln(x, y1, x, cy - 5) + ln(x, cy + 5, x, y2) + ln(x - 13, cy - 5, x + 13, cy - 5) + ln(x - 13, cy + 5, x + 13, cy + 5) + txt(x + 18, cy + 5, lab(name), 'start'); };
+  // מקור AC (עיגול עם ~) על חוט אנכי
+  const acSource = (x, y1, y2, label) => { const cy = (y1 + y2) / 2; return ln(x, y1, x, cy - 15) + ln(x, cy + 15, x, y2) + `<circle cx="${rd(x)}" cy="${rd(cy)}" r="15" fill="#fff" stroke="#1f2937" stroke-width="2"/>` +
+    `<path d="M${rd(x - 9)},${rd(cy)} q4.5,-8 9,0 t9,0"/>` + txt(x - 22, cy + 5, lab(label), 'end'); };
+  // טרנזיסטור NPN: הבסיס ב-(x,y); הקולט יוצא ל-(x+40, y-50), הפולט ל-(x+40, y+50)
+  function npn(x, y, name) {
+    return ln(x, y, x + 14, y) + ln(x + 14, y - 20, x + 14, y + 20) + ln(x + 14, y - 8, x + 40, y - 28) + ln(x + 40, y - 28, x + 40, y - 50) +
+      ln(x + 14, y + 8, x + 40, y + 28) + arrowAt(x + 38, y + 26.5, x + 14, y + 8) + ln(x + 40, y + 28, x + 40, y + 50) + (name ? txt(x + 48, y + 6, name, 'start') : '');
+  }
+  /* מעגל מגבר: { vcc, RB, RC, RE?, CE?, RL?, src: 'ac'|'term', unknown: {RB,RC,...} (ערך null בציור), coupling: true }
+   * מעגל מתג: { switch: true, vcc, RB, load: 'LR'|'RL'|'R', R, base: 'term' | { sensor: {type}, R4, pos: 'top'|'bot' } } */
+  function renderAmp(c) {
+    const o = [], yR = -180, xb = -70, xt = 0, xc = 40, R = (name, v) => ({ name, value: c.hide && c.hide.includes(name) ? null : v });
+    // מסילה ו-V_CC
+    o.push(ln(xb, yR, xc, yR), dot(xb, yR), ln(xc - 50, yR, xc - 50, yR - 22), arrowHead(xc - 50, yR - 28, 'up'), txt(xc - 50, yR - 34, lab(`V_CC${c.vcc != null ? ' = ' + c.vcc + ' V' : ''}`)));
+    o.push(vRes(xb, yR, 0, R('R_B', c.RB), 'left'), dot(xb, 0), ln(xb, 0, xt, 0));
+    o.push(vRes(xc, yR, -60, R('R_C', c.RC), 'right'), ln(xc, -60, xc, -50), dot(xc, -60));
+    o.push(npn(xt, 0, 'T'));
+    let bottom = 80;
+    if (c.RE) {
+      o.push(dot(xc, 64), ln(xc, 50, xc, 64), vRes(xc, 64, 150, R('R_E', c.RE), 'left'), ground(xc, 150));
+      if (c.CE) o.push(ln(xc, 64, xc + 50, 64), capV(xc + 50, 64, 150, 'C_E'), ln(xc + 50, 150, xc, 150));
+      bottom = 180;
+    } else o.push(ground(xc, 50));
+    // DC (תרגול בסיסי): בלי קבלים, בלי מבוא ובלי עומס
+    if (c.dc) {
+      const T = yR - 50, left = xb - 90, W = xc + 110 - left, H = bottom - T;
+      return { svg: svgWrap(W, H, g(-left, -T, o.join(''))), width: W, height: H };
+    }
+    // מבוא
+    let left = xb - 40;
+    if (c.coupling !== false) {
+      o.push(ln(xb, 0, xb - 30, 0), capH(xb - 30, xb - 60, 0, 'C_1'));
+      if (c.src === 'ac') { o.push(ln(xb - 60, 0, xb - 100, 0), acSource(xb - 100, 0, 110, 'V_i'), ground(xb - 100, 110)); left = xb - 150; bottom = Math.max(bottom, 140); }
+      else { o.push(ln(xb - 60, 0, xb - 96, 0), term(xb - 100, 0), txt(xb - 110, 5, lab('V_i'), 'end')); left = xb - 140; }
+    }
+    // מוצא
+    o.push(ln(xc, -60, xc + 50, -60), capH(xc + 50, xc + 80, -60, 'C_2'), ln(xc + 80, -60, xc + 160, -60));
+    let right = xc + 220;
+    if (c.RL) { o.push(dot(xc + 120, -60), vRes(xc + 120, -60, 30, R('R_L', c.RL), 'right'), ground(xc + 120, 30)); }
+    o.push(term(xc + 164, -60), txt(xc + 174, -55, lab('V_o'), 'start'));
+    const T = yR - 50, W = right - left, H = bottom - T;
+    return { svg: svgWrap(W, H, g(-left, -T, o.join(''))), width: W, height: H };
+  }
+  function renderSwitch(c) {
+    const o = [], yR = -200, xt = 0, xc = 40, R = (name, v) => ({ name, value: c.hide && c.hide.includes(name) ? null : v });
+    o.push(ln(xc, yR, xc, yR - 22), arrowHead(xc, yR - 28, 'up'), txt(xc, yR - 34, lab(`V_CC${c.vcc != null ? ' = ' + c.vcc + ' V' : ''}`)));
+    // עומס בקולט: LED ונגד (בסדר כלשהו), או נגד בלבד
+    if (c.load === 'R') o.push(vRes(xc, yR, -60, R(c.Rname || 'R_C', c.R), 'right'));
+    else if (c.load === 'LR') o.push(ln(xc, yR, xc, yR + 24), led(xc, yR + 31, true, 'LED'), ln(xc, yR + 38, xc, yR + 56), vRes(xc, yR + 56, -60, R(c.Rname || 'R', c.R), 'right'));
+    else o.push(vRes(xc, yR, -100, R(c.Rname || 'R', c.R), 'right'), ln(xc, -100, xc, -84), led(xc, -77, true, 'LED'), ln(xc, -70, xc, -60));
+    o.push(ln(xc, -60, xc, -50), dot(xc, -60), ln(xc, -60, xc + 90, -60), term(xc + 94, -60), txt(xc + 104, -55, lab('V_o'), 'start'));
+    o.push(npn(xt, 0, 'T'), ground(xc, 50));
+    let left = -200;
+    if (c.base === 'term' || !c.base) {
+      o.push(hRes(-110, xt, 0, R('R_B', c.RB)), term(-114, 0), txt(-124, 5, lab('V_i'), 'end'));
+      left = -170;
+    } else {
+      // חיישן במחלק מ-V_CC שמזין את הבסיס דרך R_B
+      const xd = -150, s = c.base, sens = { k: 'sensor', type: s.sensor.type }, r4 = { k: 'R', name: 'R_1', value: s.R4 };
+      o.push(ln(xd, yR, xc, yR), dot(xc, yR), vElem(xd, yR, 0, s.pos === 'top' ? sens : r4), vElem(xd, 0, 130, s.pos === 'top' ? r4 : sens), ground(xd, 130), dot(xd, 0), ptLabel(xd + 8, -8, 'A', 'start'));
+      o.push(hRes(xd, xt, 0, R('R_B', c.RB)));
+      left = xd - 90;
+    }
+    const T = yR - 50, right = xc + 150, bottom = c.base && c.base !== 'term' ? 170 : 85, W = right - left, H = bottom - T;
+    return { svg: svgWrap(W, H, g(-left, -T, o.join(''))), width: W, height: H };
+  }
+  // מעגל תמורה לאות קטן: V_i, (R_B), h_ie, מקור h_fe·i_b, R_C, (R_L), V_o
+  function renderEquiv(c) {
+    const o = [], yT = 0, yB = 130, xs = [0, 80, 150, 270, 350, 420];
+    o.push(ln(xs[0], yB, xs[5] - 40, yB));
+    o.push(acSource(xs[0], yT, yB, 'V_i'), ln(xs[0], yT, xs[2], yT), dot(xs[1], yT), dot(xs[2], yT), vRes(xs[1], yT, yB, { name: 'R_B', value: c.RB || null }, 'left'));
+    o.push(vRes(xs[2], yT, yB, { name: 'h_ie', value: c.hie || null }, 'right'), arrowHead(xs[2], yT + 30, 'down'), txt(xs[2] - 8, yT + 28, lab('i_b'), 'end', ' class="sm"'), dot(xs[1], yB), dot(xs[2], yB));
+    txt(0, 0, '');
+    // מקור זרם (עיגול עם חץ למטה)
+    const cx = xs[3], cy = (yT + yB) / 2;
+    o.push(ln(cx, yT, cx, cy - 18), ln(cx, cy + 18, cx, yB), `<circle cx="${cx}" cy="${cy}" r="18" fill="#fff" stroke="#1f2937" stroke-width="2"/>`, ln(cx, cy - 10, cx, cy + 6), arrowHead(cx, cy + 12, 'down'), txt(cx - 24, cy + 5, lab('h_fe') + '·' + lab('i_b'), 'end'));
+    o.push(ln(cx, yT, xs[5], yT), dot(xs[4] - 30, yT), vRes(xs[4] - 30, yT, yB, { name: 'R_C', value: c.RC || null }, 'right'), dot(xs[4] + 30, yT), vRes(xs[4] + 30, yT, yB, { name: 'R_L', value: c.RL || null }, 'right'));
+    o.push(term(xs[5] + 4, yT), txt(xs[5] + 14, yT + 5, lab('V_o'), 'start'), term(xs[5] + 4, yB), ln(xs[4] + 30, yB, xs[5], yB));
+    o.push(ptLabel(xs[2], yT - 10, 'B'), ptLabel(xs[3] + 4, yT - 10, 'C'), ptLabel((xs[2] + xs[3]) / 2 - 22, yB + 18, 'E'), ground((xs[2] + xs[3]) / 2, yB));
+    const W = 560, H = 190;
+    return { svg: svgWrap(W, H, g(70, 30, o.join(''))), width: W, height: H };
+  }
+  // אופייני מוצא: I_C מול V_CE לכל I_B, קו עבודה ונקודת עבודה
+  function outChar(ch) {
+    // ch: { beta, IBs: [µA], vmax, imax (mA), load?: { vcc, isat }, q?: { vce, ic }, guides? }
+    const W = 520, H = 320, x0 = 56, x1 = W - 110, y0 = H - 46, y1 = 30, o = [];
+    const X = v => x0 + v / ch.vmax * (x1 - x0), Y = i => y0 - i / ch.imax * (y0 - y1);
+    for (let v = 0; v <= ch.vmax + 1e-9; v += ch.vstep || 2) o.push(ln(X(v), y0, X(v), y1, 'grid'), txt(X(v), y0 + 16, numStr(v), 'middle', ' class="sm"'));
+    for (let i = 0; i <= ch.imax + 1e-9; i += ch.istep || 1) o.push(ln(x0, Y(i), x1, Y(i), 'grid'), txt(x0 - 6, Y(i) + 4, numStr(+i.toFixed(3)), 'end', ' class="sm"'));
+    o.push(ln(x0, y0, x1 + 14, y0, 'ax'), arrowHead(x1 + 20, y0, 'right'), ln(x0, y0, x0, y1 - 14, 'ax'), arrowHead(x0, y1 - 20, 'up'));
+    o.push(txt(x1 + 14, y0 + 32, lab('V_CE') + ' [V]', 'end', ' class="sm"'), txt(x0 + 6, y1 - 10, lab('I_C') + ' [mA]', 'start', ' class="sm"'));
+    ch.IBs.forEach(ib => {
+      const ic = ch.beta * ib / 1000, pts = [];
+      for (let k = 0; k <= 60; k++) { const v = ch.vmax * k / 60, f = 1 - Math.exp(-v / 0.25); pts.push(rd(X(v)) + ',' + rd(Y(ic * f))); }
+      o.push(`<polyline class="curve" style="stroke-width:1.8" points="${pts.join(' ')}"/>`, txt(x1 + 6, Y(ic) + 4, lab('I_B') + ` = ${ib} µA`, 'start', ' class="sm"'));
+    });
+    if (ch.load) o.push(ln(X(0), Y(ch.load.isat), X(ch.load.vcc), Y(0), 'curve'));
+    if (ch.q) o.push(dot(X(ch.q.vce), Y(ch.q.ic)), ln(X(ch.q.vce), y0, X(ch.q.vce), Y(ch.q.ic), 'guide'), ln(x0, Y(ch.q.ic), X(ch.q.vce), Y(ch.q.ic), 'guide'), txt(X(ch.q.vce) + 8, Y(ch.q.ic) - 8, 'Q', 'start', ' class="pt"'));
+    return svgWrap(W, H, o.join(''));
+  }
+
+  // ======================= מנוע התרגילים =======================
+  const MAX_ATTEMPTS = 3, LEVELS = { basic: 3, adv: 5 };
+  const VBE = 0.7, VSAT = 0.2, K = 1e3, uA = 1e-6, mA = 1e-3;
+  const { isClean: clean } = Units;
+  const rnd = x => +x.toPrecision(10);
+  // בידוד כיווניות (LRI…PDI): ערך עם יחידה, או "סמל = ערך", לא מתהפך בתוך משפט בעברית
+  const iso = s => '⁦' + s + '⁩', eqT = (sym, val) => iso(`${sym} = ${val}`);
+  const fV = v => iso(Units.format(v, 'V', false)), fI = i => iso(Units.format(i, 'A', true)), fRs = r => iso(Units.format(r, 'Ω', true));
+  const nB = b => numStr(rnd(b));
+  const E12 = [1, 1.2, 1.5, 1.8, 2, 2.2, 2.7, 3, 3.3, 3.9, 4.7, 5, 5.6, 6.8, 8.2];
+  const NR = [100, 1e3, 1e4, 1e5, 1e6].flatMap(d => E12.map(x => rnd(x * d)));
+  const VCCS = [5, 6, 8, 9, 10, 12, 15, 16, 18, 20, 24], VBBS = [2, 3, 4, 5, 6, 9, 10, 12];
+  const BETAS = [40, 50, 60, 75, 80, 90, 100, 110, 120, 125, 140, 150, 160, 180, 200, 250, 300];
+  const IBS = [5, 8, 10, 12, 15, 16, 20, 24, 25, 30, 40, 50, 60, 75, 80, 100].map(x => rnd(x * uA));
+  // זוגות (R_B, I_B) נקיים: מ-I_B עגול, או מ-R_B עגול
+  const rbPairs = VB => {
+    const out = [];
+    IBS.forEach(ib => { const rb = rnd((VB - VBE) / ib); if (clean(rb) && rb >= 10e3 && rb <= 2.2e6) out.push([rb, ib]); });
+    NR.forEach(rb => { const ib = rnd((VB - VBE) / rb); if (rb >= 10e3 && clean(ib) && ib >= 5 * uA && ib <= 200 * uA && !out.some(p => p[0] === rb)) out.push([rb, ib]); });
+    return out;
+  };
+  const RCS = NR.filter(r => r >= 220 && r <= 10e3);
+
+  const numA = (sym, value, unit, extra) => Object.assign({ type: 'num', sym, value: rnd(value), unit, prefix: unit === 'A' || unit === 'Ω' }, extra || {});
+  const STATE_OPTS = [{ value: 'act', label: 'פעיל' }, { value: 'sat', label: 'רוויה' }, { value: 'cut', label: 'קיטעון' }];
+  const STATE_NAME = { act: 'פעיל', sat: 'רוויה', cut: 'קיטעון' };
+  const stateChoice = v => ({ type: 'choice', label: 'מצב הטרנזיסטור', short: 'המצב', value: v, options: STATE_OPTS });
+
+  /* מודל DC בסיסי (בלי R_E):
+   * base: 'vcc' = R_B מ-V_CC לבסיס;  'vbb' = R_B ממקור מבוא V_i לבסיס.  VB = המתח שמזין את R_B */
+  function dcModel(rng, forceBase) {
+    for (let t = 0; t < 400; t++) {
+      const VCC = rng.pick(VCCS), base = forceBase || (rng.next() < 0.65 ? 'vcc' : 'vbb');
+      const VB = base === 'vcc' ? VCC : rng.pick(VBBS.filter(v => v <= VCC));
+      const pairs = rbPairs(VB);
+      if (!pairs.length) continue;
+      const beta = rng.pick(BETAS), [RB, IB] = rng.pick(pairs), IC = rnd(beta * IB);
+      if (IC > 20 * mA || !clean(IC)) continue;
+      const rcs = RCS.filter(rc => { const v = rnd(VCC - IC * rc); return clean(v) && v >= 1 && v <= VCC - 1; });
+      if (!rcs.length) continue;
+      const RC = rng.pick(rcs);
+      return { VCC, base, VB, beta, IB, RB, IC, IE: rnd((beta + 1) * IB), RC, VCE: rnd(VCC - IC * RC) };
+    }
+    return null;
+  }
+  // מצב הטרנזיסטור (פתרון "אמיתי", למשל אחרי שינוי)
+  function dcSolve(VCC, VB, RB, RC, beta) {
+    const IB = VB > VBE && RB ? (VB - VBE) / RB : 0, Isat = (VCC - VSAT) / RC;
+    if (IB <= 0) return { state: 'cut', IB: 0, IC: 0, VCE: VCC, Isat };
+    if (beta * IB >= Isat) return { state: 'sat', IB, IC: Isat, VCE: VSAT, Isat };
+    return { state: 'act', IB, IC: beta * IB, VCE: VCC - beta * IB * RC, Isat };
+  }
+
+  // ---- שורות פתרון ----
+  const vbSym = m => (m.base === 'vcc' ? 'V_CC' : 'V_i');
+  const ibLine = (m, RB, IB) => [`במעגל הבסיס: ${iso(vbSym(m) + ' = I_B · R_B + V_BE')}, ולכן:`, `I_B = (${vbSym(m)} − V_BE) / R_B = (${fV(m.VB)} − ${fV(VBE)}) / ${fRs(RB)} = ${fI(IB)}`];
+  const icLine = (m, beta, IB, IC) => ['במצב פעיל:', `I_C = β · I_B = ${nB(beta)} · ${fI(IB)} = ${fI(IC)}`];
+  const ieLine = m => ['זרם הפולט הוא סכום הזרמים:', `I_E = I_B + I_C = (β + 1) · I_B = ${nB(m.beta + 1)} · ${fI(m.IB)} = ${fI(m.IE)}`];
+  const vceLine = (m, IC, RC, VCE) => [`במעגל הקולט: ${iso('V_CC = I_C · R_C + V_CE')}, ולכן:`, `V_CE = V_CC − I_C · R_C = ${fV(m.VCC)} − ${fI(IC)} · ${fRs(RC)} = ${fV(VCE)}`];
+  const activeNote = VCE => [`${eqT('V_CE', fV(VCE))} גדול מ-V_CE(sat), ולכן הטרנזיסטור אכן במצב פעיל.`, null];
+
+  const ibPart = m => ({ kind: 'ib', text: 'חשבו את זרם הבסיס I_B.', answers: [numA('I_B', m.IB, 'A')], sol: [ibLine(m, m.RB, m.IB)] });
+  const icPart = (m, withIE) => ({ kind: 'ic', text: withIE ? 'חשבו את זרם הקולט I_C ואת זרם הפולט I_E.' : 'חשבו את זרם הקולט I_C.',
+    answers: withIE ? [numA('I_C', m.IC, 'A'), numA('I_E', m.IE, 'A')] : [numA('I_C', m.IC, 'A')],
+    sol: withIE ? [icLine(m, m.beta, m.IB, m.IC), ieLine(m)] : [ibLine(m, m.RB, m.IB), icLine(m, m.beta, m.IB, m.IC)] });
+  const vcePart = (m, full) => ({ kind: 'vce', text: 'חשבו את המתח V_CE.', answers: [numA('V_CE', m.VCE, 'V')],
+    sol: (full ? [ibLine(m, m.RB, m.IB), icLine(m, m.beta, m.IB, m.IC)] : []).concat([vceLine(m, m.IC, m.RC, m.VCE), activeNote(m.VCE)]) });
+  const loadPart = m => ({ kind: 'load', text: 'מצאו את נקודות החיתוך של קו העבודה עם הצירים.',
+    prompt: `רשמו את V_CE בנקודה שבה ${iso('I_C = 0')}, ואת I_C בנקודה שבה ${iso('V_CE = 0')}.`,
+    answers: [numA('V_CE', m.VCC, 'V'), numA('I_C', m.VCC / m.RC, 'A')],
+    sol: [[`קו העבודה הוא משוואת מעגל הקולט: ${iso('V_CE = V_CC − I_C · R_C')}.`, null],
+      [`כש-${iso('I_C = 0')} (קיטעון):`, `V_CE = V_CC = ${fV(m.VCC)}`],
+      [`כש-${iso('V_CE = 0')}:`, `I_C = V_CC / R_C = ${fV(m.VCC)} / ${fRs(m.RC)} = ${fI(m.VCC / m.RC)}`]] });
+
+  // מצב הטרנזיסטור אחרי שינוי ברכיב אחד
+  function changePart(rng, m) {
+    const opts = [];
+    const satLines = (beta, IB, RC) => {
+      const Isat = (m.VCC - VSAT) / RC;
+      return [[`בודקים אם הטרנזיסטור ברוויה. זרם הקולט המרבי (ברוויה):`, `I_C(sat) = (V_CC − V_CE(sat)) / R_C = (${fV(m.VCC)} − ${fV(VSAT)}) / ${fRs(RC)} = ${fI(Isat)}`],
+        [null, `β · I_B = ${nB(beta)} · ${fI(IB)} = ${fI(beta * IB)}`]];
+    };
+    // R_B קטן → רוויה
+    const rb2 = NR.filter(r => r < m.RB / 1.5 && r >= m.RB / 30 && r >= 1e3 && m.beta * (m.VB - VBE) / r >= 1.25 * (m.VCC - VSAT) / m.RC);
+    if (rb2.length) opts.push(['satRB', 3, () => {
+      const RB2 = rng.pick(rb2), IB2 = (m.VB - VBE) / RB2;
+      return { mod: { RB: RB2 }, text: `מחליפים את R_B בנגד של ${fRs(RB2)}. מהו מצב הטרנזיסטור, ומהו המתח V_CE?`, state: 'sat', VCE: VSAT,
+        sol: [ibLine(m, RB2, IB2), ...satLines(m.beta, IB2, m.RC), ['β · I_B גדול מ-I_C(sat): הזרם לא יכול לגדול עד β · I_B, והטרנזיסטור ברוויה.', `V_CE = V_CE(sat) = ${fV(VSAT)}`]] };
+    }]);
+    // R_C גדול → רוויה
+    const rc2 = NR.filter(r => r > m.RC * 1.3 && r <= m.RC * 10 && m.IC >= 1.25 * (m.VCC - VSAT) / r);
+    if (rc2.length) opts.push(['satRC', 2, () => {
+      const RC2 = rng.pick(rc2);
+      return { mod: { RC: RC2 }, text: `מחליפים את R_C בנגד של ${fRs(RC2)}. מהו מצב הטרנזיסטור, ומהו המתח V_CE?`, state: 'sat', VCE: VSAT,
+        sol: [['זרם הבסיס לא משתנה (R_C לא במעגל הבסיס):', `I_B = ${fI(m.IB)}`], ...satLines(m.beta, m.IB, RC2),
+          ['β · I_B גדול מ-I_C(sat), ולכן הטרנזיסטור ברוויה.', `V_CE = V_CE(sat) = ${fV(VSAT)}`]] };
+    }]);
+    // β גדול → רוויה
+    const b2 = [200, 250, 300, 400].filter(b => b > m.beta && b * m.IB >= 1.25 * (m.VCC - VSAT) / m.RC);
+    if (b2.length) opts.push(['satBeta', 1, () => {
+      const B2 = rng.pick(b2);
+      return { mod: { beta: B2 }, text: `מחליפים את הטרנזיסטור בטרנזיסטור אחר עם ${eqT('β', B2)}. מהו מצב הטרנזיסטור, ומהו המתח V_CE?`, state: 'sat', VCE: VSAT,
+        sol: [['זרם הבסיס לא תלוי ב-β:', `I_B = ${fI(m.IB)}`], ...satLines(B2, m.IB, m.RC), ['β · I_B גדול מ-I_C(sat), ולכן הטרנזיסטור ברוויה.', `V_CE = V_CE(sat) = ${fV(VSAT)}`]] };
+    }]);
+    // R_B גדול → נשאר פעיל
+    const rbA = NR.filter(r => { if (r < m.RB * 1.3 || r > m.RB * 5) return false; const ib = rnd((m.VB - VBE) / r), v = rnd(m.VCC - m.beta * ib * m.RC); return clean(ib) && clean(rnd(m.beta * ib)) && m.beta * ib <= 0.85 * (m.VCC - VSAT) / m.RC && v <= m.VCC - 0.3; });
+    if (rbA.length) opts.push(['act', 3, () => {
+      const RB2 = rng.pick(rbA), IB2 = rnd((m.VB - VBE) / RB2), IC2 = rnd(m.beta * IB2), V2 = rnd(m.VCC - IC2 * m.RC);
+      return { mod: { RB: RB2 }, text: `מחליפים את R_B בנגד של ${fRs(RB2)}. מהו מצב הטרנזיסטור, ומהו המתח V_CE?`, state: 'act', VCE: V2,
+        sol: [ibLine(m, RB2, IB2), ...satLines(m.beta, IB2, m.RC).slice(0, 2), ['β · I_B קטן מ-I_C(sat), ולכן הטרנזיסטור במצב פעיל:', `I_C = β · I_B = ${fI(IC2)}`],
+          [null, `V_CE = V_CC − I_C · R_C = ${fV(m.VCC)} − ${fI(IC2)} · ${fRs(m.RC)} = ${fV(V2)}`]] };
+    }]);
+    // קיטעון
+    opts.push(['cut', 2, () => ({
+      mod: m.base === 'vbb' ? { VB: 0 } : { RB: Infinity },
+      text: m.base === 'vbb' ? `מחברים את המבוא לאדמה (${eqT('V_i', 0)}). מהו מצב הטרנזיסטור, ומהו המתח V_CE?` : 'הנגד R_B נשרף ונפתח (נתק). מהו מצב הטרנזיסטור, ומהו המתח V_CE?',
+      state: 'cut', VCE: m.VCC,
+      sol: [[m.base === 'vbb' ? `${iso('V_i = 0')} קטן מ-${iso('V_BE = 0.7 V')}, ולכן הצומת בסיס-פולט לא מוליך ואין זרם בסיס:` : 'אין מסלול לזרם הבסיס:', 'I_B = 0,   I_C = β · I_B = 0'],
+        ['הטרנזיסטור בקיטעון. אין זרם ב-R_C, ולכן אין עליו מתח:', `V_CE = V_CC − 0 · R_C = ${fV(m.VCC)}`]],
+    })]);
+    // הגרלה לפי משקל
+    const tot = opts.reduce((s, o) => s + o[1], 0);
+    let r = rng.next() * tot, pick = opts[opts.length - 1];
+    for (const o of opts) { if ((r -= o[1]) < 0) { pick = o; break; } }
+    const c = pick[2]();
+    return { kind: 'state', change: pick[0], text: c.text, answers: [stateChoice(c.state), numA('V_CE', c.VCE, 'V')], sol: c.sol, mod: c.mod };
+  }
+
+  // אופייני מוצא לנקודת עבודה (בדיקה עצמית): גריד שמתאים ל-V_CC ול-I_C(sat)
+  const STEPS = [0.1, 0.2, 0.25, 0.5, 1, 2, 2.5, 5, 10];
+  function gridFor(max, nMin, nMax) {
+    for (const s of STEPS) { const n = Math.ceil(max / s - 1e-9); if (n >= nMin && n <= nMax) return { step: s, max: rnd(n * s) }; }
+    return { step: max / 5, max };
+  }
+  function charOf(m, opts) {
+    const isat = m.VCC / m.RC / mA, gv = gridFor(m.VCC, 4, 12), gi = gridFor(isat * 1.15, 4, 10);
+    const ibq = m.IB / uA, half = rnd(ibq / 2), IBs = [];
+    for (let k = 1; k <= 12; k++) { const ib = rnd(half * k); if (m.beta * ib / 1000 <= gi.max * 0.98) IBs.push(ib); }
+    return Object.assign({ beta: m.beta, IBs: IBs.filter((_, i) => (i % 2 === 1) || IBs.length <= 6), vmax: gv.max, vstep: gv.step, imax: gi.max, istep: gi.step,
+      load: { vcc: m.VCC, isat }, q: { vce: m.VCE, ic: m.IC / mA } }, opts || {});
+  }
+
+  // רמה 3: אופייני מוצא בגרף, עם קו העבודה ונקודת העבודה על הגריד
+  function graphModel(rng) {
+    for (let t = 0; t < 600; t++) {
+      // הצירים יכולים להמשיך מעבר ל-V_CC ול-I_C(sat), כששניהם על קווי הגריד
+      const VCC = rng.pick([5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 18, 20, 24]), vstep = VCC <= 12 ? 1 : VCC === 15 ? 2.5 : 2;
+      if (Math.abs(VCC / vstep - Math.round(VCC / vstep)) > 1e-9) continue;
+      const vmax = rnd(VCC + vstep * rng.pick([0, 0, 1, 2]));
+      const isat = rng.pick([1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 6, 7, 8, 9, 10, 12, 14, 15, 16, 18, 20]), istep = rng.pick([0.25, 0.5, 1, 2, 2.5]);
+      if (Math.abs(isat / istep - Math.round(isat / istep)) > 1e-9 || isat / istep < 4 || isat / istep > 10) continue;
+      const imax = rnd(isat + istep * rng.pick([0, 0, 1, 2])), gi = { step: istep, max: imax };
+      const RC = rnd(VCC / (isat * mA));
+      if (!clean(RC) || RC < 470 || RC > 10e3) continue;
+      const vces = []; for (let v = vstep; v < VCC; v += vstep) vces.push(v);
+      const q = vces.map(v => [v, rnd(isat * (1 - v / VCC))]).filter(([v, ic]) => v >= VCC * 0.25 && v <= VCC * 0.75 && Math.abs(2 * ic / gi.step - Math.round(2 * ic / gi.step)) < 1e-9);
+      if (!q.length) continue;
+      const [vce, ic] = rng.pick(q);
+      // I_C של Q על קו גריד או באמצע בין קווים; I_B של נקודת העבודה ו-β שלם
+      const kq = rng.pick([2, 3, 4, 5]);
+      const cands = [2, 4, 5, 8, 10, 15, 20, 25, 30, 40, 50, 60, 80, 100].map(s => [s, s * kq]).filter(([s, ib]) => { const b = ic * 1000 / ib; return Number.isInteger(rnd(b)) && b >= 40 && b <= 300; });
+      if (!cands.length) continue;
+      const [ibStep, ibq] = rng.pick(cands), beta = rnd(ic * 1000 / ibq);
+      const IBs = []; for (let k = 1; beta * ibStep * k / 1000 <= imax * 0.999; k++) IBs.push(ibStep * k);
+      if (IBs.length < 3 || IBs.length > 6) continue;
+      return { VCC, RC, beta, IB: rnd(ibq * uA), IC: rnd(ic * mA), VCE: vce, isat, base: 'vcc', VB: VCC, RB: rnd((VCC - VBE) / (ibq * uA)),
+        ch: { beta, IBs, vmax, vstep, imax, istep, load: { vcc: VCC, isat }, q: { vce, ic } } };
+    }
+    return null;
+  }
+
+  function buildBasic(rng, level) {
+    if (level === 3 && rng.next() < 0.5) {
+      const m = graphModel(rng), tol = 0.03;
+      return { m, variant: 'graph', hide: ['R_B', 'R_C'], vcc: null,
+        intro: 'באיור נתון מעגל ממתח של טרנזיסטור NPN, ומתחתיו אופייני המוצא של הטרנזיסטור עם קו העבודה ונקודת העבודה Q.',
+        parts: [
+          { kind: 'gvcc', text: 'מהו מתח ההזנה V_CC?', answers: [numA('V_CC', m.VCC, 'V', { tol })],
+            sol: [[`קו העבודה חותך את ציר V_CE בנקודה שבה ${iso('I_C = 0')}, ושם ${iso('V_CE = V_CC')}:`, `V_CC = ${fV(m.VCC)}`]] },
+          { kind: 'grc', text: 'מהי ההתנגדות R_C?', answers: [numA('R_C', m.RC, 'Ω', { tol })],
+            sol: [[`קו העבודה חותך את ציר I_C בנקודה שבה ${iso('V_CE = 0')}:`, `I_C = V_CC / R_C = ${fI(m.isat * mA)}`], [null, `R_C = V_CC / I_C = ${fV(m.VCC)} / ${fI(m.isat * mA)} = ${fRs(m.RC)}`]] },
+          { kind: 'gbeta', text: 'מהו ההגבר בזרם β של הטרנזיסטור?', answers: [numA('β', m.beta, '', { tol })],
+            sol: [['נקודת העבודה Q נמצאת על העקומה של', `I_B = ${fI(m.IB)},   I_C = ${fI(m.IC)}`], [null, `β = I_C / I_B = ${fI(m.IC)} / ${fI(m.IB)} = ${nB(m.beta)}`]] },
+          { kind: 'grb', text: 'מהי ההתנגדות R_B?', answers: [numA('R_B', m.RB, 'Ω', { tol })],
+            sol: [[`במעגל הבסיס, עם ${eqT('I_B', fI(m.IB))} מהגרף:`, `R_B = (V_CC − V_BE) / I_B = (${fV(m.VCC)} − ${fV(VBE)}) / ${fI(m.IB)} = ${fRs(m.RB)}`]] },
+        ] };
+    }
+    const m = dcModel(rng);
+    if (!m) return null;
+    const intro = m.base === 'vcc' ? 'באיור נתון מעגל ממתח של טרנזיסטור NPN בחיבור פולט משותף.' : `באיור נתון מעגל של טרנזיסטור NPN בחיבור פולט משותף. למבוא מחובר מתח קבוע ${eqT('V_i', fV(m.VB))}.`;
+    if (level === 1) {
+      const k = rng.pick(['ib', 'ic', 'vce']);
+      const part = k === 'ib' ? ibPart(m) : k === 'ic' ? icPart(m, false) : vcePart(m, true);
+      return { m, variant: k, intro: intro + ' ' + part.text, parts: [part] };
+    }
+    if (level === 2) {
+      const ch = changePart(rng, m);
+      return { m, variant: 'q' + ch.change, intro, satGiven: true, parts: [ibPart(m), icPart(m, true), vcePart(m, false), loadPart(m), ch] };
+    }
+    // רמה 3: שאלות הפוכות מנקודת העבודה
+    const q = `נקודת העבודה של הטרנזיסטור: ${eqT('I_C', fI(m.IC))}, ${eqT('V_CE', fV(m.VCE))}.`;
+    const selfP = { kind: 'sketch', text: 'סרטטו במחברת את קו העבודה וסמנו עליו את נקודת העבודה Q.', selfcheck: { button: 'הצג את קו העבודה הנכון להשוואה', html: outChar(charOf(m)) }, sol: [] };
+    const ibP = { kind: 'ib', text: 'חשבו את זרם הבסיס I_B.', answers: [numA('I_B', m.IB, 'A')], sol: [['במצב פעיל:', `I_B = I_C / β = ${fI(m.IC)} / ${nB(m.beta)} = ${fI(m.IB)}`]] };
+    const rbP = { kind: 'rb', text: 'חשבו את ההתנגדות R_B.', answers: [numA('R_B', m.RB, 'Ω')],
+      sol: [[`במעגל הבסיס: ${iso(vbSym(m) + ' = I_B · R_B + V_BE')}, ולכן:`, `R_B = (${vbSym(m)} − V_BE) / I_B = (${fV(m.VB)} − ${fV(VBE)}) / ${fI(m.IB)} = ${fRs(m.RB)}`]] };
+    if (m.base === 'vbb' || rng.next() < 0.6) {
+      return { m, variant: 'revRC', hide: ['R_B', 'R_C'], intro: intro + ' ' + q, parts: [
+        { kind: 'rc', text: 'חשבו את ההתנגדות R_C.', answers: [numA('R_C', m.RC, 'Ω')],
+          sol: [[`במעגל הקולט: ${iso('V_CC = I_C · R_C + V_CE')}, ולכן:`, `R_C = (V_CC − V_CE) / I_C = (${fV(m.VCC)} − ${fV(m.VCE)}) / ${fI(m.IC)} = ${fRs(m.RC)}`]] }, ibP, rbP, selfP] };
+    }
+    return { m, variant: 'revVCC', hide: ['R_B'], vcc: null, intro: intro + ' ' + q, parts: [
+      { kind: 'vcc', text: 'חשבו את מתח ההזנה V_CC.', answers: [numA('V_CC', m.VCC, 'V')],
+        sol: [['במעגל הקולט:', `V_CC = I_C · R_C + V_CE = ${fI(m.IC)} · ${fRs(m.RC)} + ${fV(m.VCE)} = ${fV(m.VCC)}`]] }, ibP,
+      Object.assign({}, rbP, { sol: [[`במעגל הבסיס, עם ${eqT('V_CC', fV(m.VCC))}:`, `R_B = (V_CC − V_BE) / I_B = (${fV(m.VCC)} − ${fV(VBE)}) / ${fI(m.IB)} = ${fRs(m.RB)}`]] }), selfP] };
+  }
+
+  // ======================= תרגול מתקדם =======================
+  const HIES = [500, 800, 1e3, 1.2e3, 1.5e3, 2e3, 2.5e3, 3e3, 4e3, 5e3];
+  const RLS = NR.filter(r => r >= 1e3 && r <= 22e3);
+  const VIS = [2, 4, 5, 8, 10, 12, 15, 20, 25, 30, 40, 50].map(x => rnd(x * mA));
+  const par = (a, b) => a * b / (a + b);
+  const fVp = v => iso(Units.format(v, 'V', true));   // מתח עם תחילית (mV)
+  const nS = x => numStr(rnd(x)).replace('-', '−');
+  const PHASE_OPTS = [{ value: 'inv', label: 'מופע הפוך (הפרש של 180°)' }, { value: 'same', label: 'באותו מופע' }];
+
+  // ---- גרפי זמן: לוחות זה מתחת לזה עם ציר זמן משותף ----
+  function waveSvg(panels, tMax, ticks, tUnit) {
+    const W = 480, x0 = 58, x1 = W - 34, o = [];
+    let top = 0;
+    const X = t => x0 + t / tMax * (x1 - x0);
+    panels.forEach(p => {
+      const PH = p.vmin < 0 ? 170 : 140, yt = top + 28, yb = top + PH - 24, lo = Math.min(p.vmin, 0), hi = Math.max(p.vmax, 0);
+      const Y = v => yb - (v - lo) / (hi - lo || 1) * (yb - yt);
+      o.push(ln(x0, Y(0), x1 + 8, Y(0), 'ax'), arrowHead(x1 + 14, Y(0), 'right'), ln(x0, yb + 6, x0, yt - 8, 'ax'), arrowHead(x0, yt - 14, 'up'), txt(x0 + 8, yt - 12, lab(p.label) + ` [${p.unit}]`, 'start', ' class="sm"'));
+      [...new Set(p.marks.map(rnd))].forEach(v => { if (v !== 0) o.push(ln(x0, Y(v), x1, Y(v), 'guide'), txt(x0 - 6, Y(v) + 4, numStr(v).replace('-', '−'), 'end', ' class="sm"')); });
+      const pts = (p.pts || Array.from({ length: 481 }, (_, i) => { const t = tMax * i / 480; return [t, p.f(t)]; })).map(([t, v]) => rd(X(t)) + ',' + rd(Y(v)));
+      o.push(`<polyline class="curve" points="${pts.join(' ')}"/>`);
+      ticks.forEach(t => o.push(ln(X(t), Y(0) - 3, X(t), Y(0) + 3, 'ax'), txt(X(t), Y(0) + 15, numStr(rnd(t)), 'middle', ' class="sm"')));
+      o.push(txt(x1 + 6, Y(0) + 30, `t [${tUnit}]`, 'end', ' class="sm"'));
+      top += PH;
+    });
+    return svgWrap(W, top + 4, o.join(''));
+  }
+  // אות מדרגות: segs = [{ v, d }], שני מחזורים, עם קצוות אנכיים
+  const stepPts = (segs, f) => { const pts = []; let t = 0; for (let k = 0; k < 2; k++) segs.forEach(s => { const v = f(s); pts.push([t, v], [t + s.d, v]); t += s.d; }); return pts; };
+  const segTicks = segs => { const T = segs.reduce((a, s) => a + s.d, 0), out = []; let t = 0; for (let k = 0; k < 2; k++) segs.forEach(s => { t += s.d; out.push(rnd(t)); }); return { T, ticks: out }; };
+
+  // ---------------- מגבר ----------------
+  // R_L ו-h_ie כך ש-A_v "נקי"
+  function pickAc(rng, m) {
+    const opts = [];
+    RLS.forEach(RL => HIES.forEach(hie => {
+      if (RL === m.RC) return;   // R_L = R_C מסגיר את R_C בשאלות התכנון
+      const Rp = rnd(par(m.RC, RL)), Av = rnd(-m.beta * Rp / hie), Av0 = rnd(-m.beta * m.RC / hie);
+      if (clean(Av) && Math.abs(Av) >= 10 && Math.abs(Av) <= 500 && Math.abs(Av0) <= 1000) opts.push({ RL, hie, Rp, Av, Av0 });
+    }));
+    return opts.length ? rng.pick(opts) : null;
+  }
+  // משרעת מבוא בלי עיוות: נדנוד המוצא קטן מהמרחק לרוויה ולקיטעון
+  const swing = (m, Rload) => 0.8 * Math.min(m.VCE - VSAT, m.IC * Rload);
+  function pickVi(rng, m, ac, noRL) {
+    const ok = VIS.filter(vi => { const vo = rnd(Math.abs(ac.Av) * vi); return clean(vo) && vo <= swing(m, ac.Rp) && (!noRL || Math.abs(ac.Av0) * vi <= swing(m, m.RC)); });
+    return ok.length ? rng.pick(ok) : null;
+  }
+  const avSol = (m, ac, withRE) => [
+    [`במעגל התמורה הקבלים ו-V_CC הם קצר לאות${withRE ? ', וגם C_E מקצר את R_E (לכן R_E לא מופיע)' : ''}. במוצא R_C ו-R_L במקביל:`, `R_C ∥ R_L = ${fRs(m.RC)} ∥ ${fRs(ac.RL)} = ${fRs(ac.Rp)}`],
+    [null, `A_v = −h_fe · (R_C ∥ R_L) / h_ie = −${nB(m.beta)} · ${fRs(ac.Rp)} / ${fRs(ac.hie)} = ${nS(ac.Av)}`]];
+  const avPart = (m, ac, withRE) => ({ kind: 'av', text: `חשבו את הגבר המתח ${iso('A_v = V_o / V_i')}.`, answers: [numA('A_v', ac.Av, '', { signed: true })], sol: avSol(m, ac, withRE) });
+  const equivPart = (m, ac) => ({ kind: 'equiv', text: 'סרטטו את מעגל התמורה של המגבר לאות קטן.', selfcheck: { button: 'הצג את מעגל התמורה להשוואה', html: renderEquiv({ RB: m.RB, hie: ac.hie, RC: m.RC, RL: ac.RL }).svg }, sol: [] });
+  const vminmaxPart = (m, ac, vi) => {
+    const vo = rnd(Math.abs(ac.Av) * vi);
+    return { kind: 'vmax', text: 'מהם המתח המרבי והמתח המזערי במוצא V_o?',
+      answers: [numA('V_o(max)', vo, 'V', { signed: true, prefix: true }), numA('V_o(min)', -vo, 'V', { signed: true, prefix: true })],
+      sol: [['משרעת המוצא:', `V_om = |A_v| · V_im = ${nS(Math.abs(ac.Av))} · ${fVp(vi)} = ${fVp(vo)}`],
+        ['קבל הצימוד C_2 חוסם את רכיב ה-DC, ולכן במוצא יש רק את האות, סביב 0 V:', `V_o(max) = +${fVp(vo)},   V_o(min) = −${fVp(vo)}`]] };
+  };
+  const phasePart = () => ({ kind: 'phase', text: 'מהו המופע של V_o ביחס ל-V_i?', answers: [{ type: 'choice', label: 'המופע', short: 'המופע', value: 'inv', options: PHASE_OPTS }],
+    sol: [['ההגבר שלילי: מגבר פולט משותף הופך מופע. כש-V_i עולה, I_C גדל, המתח על R_C גדל והמתח בקולט יורד.', null]] });
+  function noRLPart(m, ac, vi) {
+    const vo = rnd(Math.abs(ac.Av0) * vi);
+    return { kind: 'norl', text: 'מנתקים את R_L. מהו הגבר המתח, ומהי משרעת המוצא?', answers: [numA('A_v', ac.Av0, '', { signed: true }), numA('V_om', vo, 'V', { prefix: true })],
+      sol: [['בלי R_L, במוצא רק R_C:', `A_v = −h_fe · R_C / h_ie = −${nB(m.beta)} · ${fRs(m.RC)} / ${fRs(ac.hie)} = ${nS(ac.Av0)}`], [null, `V_om = |A_v| · V_im = ${nS(Math.abs(ac.Av0))} · ${fVp(vi)} = ${fVp(vo)}`]] };
+  }
+  function sineSketch(ac, vi) {
+    const vo = Math.abs(ac.Av) * vi, inMV = vi * 1e3, outMV = vo < 1, A = outMV ? vo * 1e3 : vo;
+    const html = waveSvg([{ label: 'V_i', unit: 'mV', vmin: -inMV, vmax: inMV, marks: [inMV, -inMV], f: t => inMV * Math.sin(2 * Math.PI * t) },
+      { label: 'V_o', unit: outMV ? 'mV' : 'V', vmin: -A, vmax: A, marks: [A, -A], f: t => -A * Math.sin(2 * Math.PI * t) }], 2, [0.5, 1, 1.5, 2], 'ms');
+    return { kind: 'sketch', text: 'סרטטו זה מתחת לזה את מתח המבוא V_i ואת מתח המוצא V_o (שני מחזורים, זמן המחזור 1 ms).', selfcheck: { button: 'הצג את הגרפים הנכונים להשוואה', html }, sol: [] };
+  }
+  // ממתח עם R_E: I_E = (β + 1) · I_B
+  function reModel(rng) {
+    for (let t = 0; t < 400; t++) {
+      const VCC = rng.pick([9, 10, 12, 15, 18, 20, 24]), beta = rng.pick(BETAS), RE = rng.pick([100, 150, 200, 220, 250, 300, 330, 470, 500, 680, 1e3, 1.2e3, 1.5e3, 2e3]);
+      const k = (beta + 1) * RE, pairs = [];
+      IBS.forEach(ib => { const rb = rnd((VCC - VBE) / ib - k); if (rb >= 10e3 && rb <= 2.2e6 && clean(rb)) pairs.push([rb, ib]); });
+      NR.forEach(rb => { if (rb < 10e3) return; const ib = rnd((VCC - VBE) / (rb + k)); if (clean(ib) && ib >= 5 * uA && ib <= 200 * uA) pairs.push([rb, ib]); });
+      if (!pairs.length) continue;
+      const [RB, IB] = rng.pick(pairs), IC = rnd(beta * IB), IE = rnd((beta + 1) * IB), VE = rnd(IE * RE);
+      if (!clean(IC) || IC > 20 * mA || !clean(IE) || VE < 0.3 || VE > VCC / 3) continue;
+      const rcs = RCS.filter(rc => { const v = rnd(VCC - IC * rc - VE); return rc !== RE && clean(v) && v >= 1.5 && v <= VCC - VE - 1; });
+      if (!rcs.length) continue;
+      const RC = rng.pick(rcs);
+      return { VCC, base: 'vcc', VB: VCC, beta, IB, RB, IC, IE, RE, VE, RC, VCE: rnd(VCC - IC * RC - VE) };
+    }
+    return null;
+  }
+  const ampIntro = 'באיור נתון מגבר בחיבור פולט משותף עם טרנזיסטור NPN. הקבלים מהווים קצר לאות (AC) ונתק למתח DC.';
+  const ampGivens = (m, ac, extra) => [{ sym: 'β = h_fe', text: nB(m.beta) }, { sym: 'h_ie', text: fRs(ac.hie) }, { sym: 'V_BE', text: fV(VBE) }].concat(extra || []);
+
+  function buildAmp(rng, level) {
+    if (level === 4) {
+      // אופייני מוצא עם נקודת העבודה בלבד; V_CC נתון; קו העבודה בבדיקה עצמית
+      const m = graphModel(rng); if (!m) return null;
+      const ac = pickAc(rng, m); if (!ac) return null;
+      const tol = 0.03, chQ = Object.assign({}, m.ch, { load: null });
+      return { m, variant: 'graph', intro: ampIntro + ' מתחת למעגל נתונים אופייני המוצא של הטרנזיסטור, ועליהם נקודת העבודה Q של המגבר.',
+        circ: { k: 'amp', vcc: m.VCC, RB: m.RB, RC: m.RC, RL: ac.RL, src: rng.next() < 0.5 ? 'ac' : 'term', hide: ['R_B', 'R_C'] },
+        extra: outChar(chQ), givens: [{ sym: 'h_ie', text: fRs(ac.hie) }, { sym: 'V_BE', text: fV(VBE) }],
+        parts: [
+          { kind: 'gq', text: 'מהם זרם הבסיס I_B, זרם הקולט I_C והמתח V_CE בנקודת העבודה?', answers: [numA('I_B', m.IB, 'A', { tol }), numA('I_C', m.IC, 'A', { tol }), numA('V_CE', m.VCE, 'V', { tol })],
+            sol: [['קוראים מהגרף: Q נמצאת על העקומה של', `I_B = ${fI(m.IB)},   I_C = ${fI(m.IC)},   V_CE = ${fV(m.VCE)}`]] },
+          { kind: 'gbeta', text: `מהו ההגבר בזרם ${iso('β = h_fe')} של הטרנזיסטור?`, answers: [numA('β', m.beta, '', { tol })], sol: [[null, `β = I_C / I_B = ${fI(m.IC)} / ${fI(m.IB)} = ${nB(m.beta)}`]] },
+          { kind: 'grcrb', text: 'חשבו את ההתנגדויות R_C ו-R_B.', answers: [numA('R_C', m.RC, 'Ω', { tol }), numA('R_B', m.RB, 'Ω', { tol })],
+            sol: [['במעגל הקולט:', `R_C = (V_CC − V_CE) / I_C = (${fV(m.VCC)} − ${fV(m.VCE)}) / ${fI(m.IC)} = ${fRs(m.RC)}`], ['במעגל הבסיס:', `R_B = (V_CC − V_BE) / I_B = (${fV(m.VCC)} − ${fV(VBE)}) / ${fI(m.IB)} = ${fRs(m.RB)}`]] },
+          { kind: 'sketch', text: 'העתיקו את האופיינים למחברת, וסרטטו עליהם את קו העבודה של המגבר.', selfcheck: { button: 'הצג את קו העבודה הנכון להשוואה', html: outChar(m.ch) }, sol: [] },
+          Object.assign(avPart(m, ac), { sol: [[`מהסעיפים הקודמים: ${eqT('β = h_fe', nB(m.beta))}, ${eqT('R_C', fRs(m.RC))}.`, null], ...avSol(m, ac)] }),
+        ] };
+    }
+    const re = level === 5, m = re ? reModel(rng) : dcModel(rng, 'vcc');
+    if (!m) return null;
+    const ac = pickAc(rng, m); if (!ac) return null;
+    const src = rng.next() < 0.5 ? 'ac' : 'term', circ = { k: 'amp', vcc: m.VCC, RB: m.RB, RC: m.RC, RL: ac.RL, src, hide: [] };
+    if (re) Object.assign(circ, { RE: m.RE, CE: true });
+    if (level === 1) {
+      return { m, variant: 'q', intro: ampIntro, circ, givens: ampGivens(m, ac), parts: [ibPart(m),
+        { kind: 'icvce', text: 'חשבו את זרם הקולט I_C ואת המתח V_CE בנקודת העבודה.', answers: [numA('I_C', m.IC, 'A'), numA('V_CE', m.VCE, 'V')], sol: [icLine(m, m.beta, m.IB, m.IC), vceLine(m, m.IC, m.RC, m.VCE), activeNote(m.VCE)] },
+        equivPart(m, ac), avPart(m, ac)] };
+    }
+    if (level === 2) {
+      const vi = pickVi(rng, m, ac, true); if (!vi) return null;
+      return { m, variant: 'sine', intro: ampIntro + ` הטרנזיסטור במצב פעיל. למבוא מחובר אות סינוסואידלי עם משרעת ${eqT('V_im', fVp(vi))}.`, circ, givens: ampGivens(m, ac),
+        parts: [avPart(m, ac), vminmaxPart(m, ac, vi), phasePart(), noRLPart(m, ac, vi), sineSketch(ac, vi)] };
+    }
+    if (level === 3) {
+      Object.assign(circ, { vcc: null, hide: ['R_B', 'R_C'] });
+      const ch = changePart(rng, m);
+      return { m, variant: 'design' + ch.change, circ, givens: ampGivens(m, ac, [{ sym: 'V_CE(sat)', text: fV(VSAT) }]),
+        intro: ampIntro + ` המגבר תוכנן כך ש-${eqT('A_v', nS(ac.Av))}, ונקודת העבודה: ${eqT('I_C', fI(m.IC))}, ${eqT('V_CE', fV(m.VCE))}.`,
+        parts: [
+          { kind: 'rcav', text: 'חשבו את ההתנגדות R_C.', answers: [numA('R_C', m.RC, 'Ω')],
+            sol: [['מנוסחת ההגבר:', `R_C ∥ R_L = |A_v| · h_ie / h_fe = ${nS(Math.abs(ac.Av))} · ${fRs(ac.hie)} / ${nB(m.beta)} = ${fRs(ac.Rp)}`],
+              [null, `1 / R_C = 1 / (R_C ∥ R_L) − 1 / R_L   ⟹   R_C = ${fRs(ac.Rp)} · ${fRs(ac.RL)} / (${fRs(ac.RL)} − ${fRs(ac.Rp)}) = ${fRs(m.RC)}`]] },
+          { kind: 'vcc', text: 'חשבו את מתח ההזנה V_CC.', answers: [numA('V_CC', m.VCC, 'V')], sol: [['במעגל הקולט:', `V_CC = V_CE + I_C · R_C = ${fV(m.VCE)} + ${fI(m.IC)} · ${fRs(m.RC)} = ${fV(m.VCC)}`]] },
+          { kind: 'ibrb', text: 'חשבו את זרם הבסיס I_B ואת ההתנגדות R_B.', answers: [numA('I_B', m.IB, 'A'), numA('R_B', m.RB, 'Ω')],
+            sol: [['במצב פעיל:', `I_B = I_C / β = ${fI(m.IC)} / ${nB(m.beta)} = ${fI(m.IB)}`], ['במעגל הבסיס:', `R_B = (V_CC − V_BE) / I_B = (${fV(m.VCC)} − ${fV(VBE)}) / ${fI(m.IB)} = ${fRs(m.RB)}`]] },
+          ch] };
+    }
+    // רמה 5: עם R_E ו-C_E
+    const ibSolRE = [[`במעגל הבסיס, עם ${iso('I_E = (β + 1) · I_B')}:`, 'V_CC = I_B · R_B + V_BE + (β + 1) · I_B · R_E'],
+      [null, `I_B = (V_CC − V_BE) / (R_B + (β + 1) · R_E) = (${fV(m.VCC)} − ${fV(VBE)}) / (${fRs(m.RB)} + ${nB(m.beta + 1)} · ${fRs(m.RE)}) = ${fI(m.IB)}`]];
+    const vceRE = ['במעגל הקולט:', `V_CE = V_CC − I_C · R_C − I_E · R_E = ${fV(m.VCC)} − ${fI(m.IC)} · ${fRs(m.RC)} − ${fI(m.IE)} · ${fRs(m.RE)} = ${fV(m.VCE)}`];
+    if (rng.next() < 0.5) {
+      const isat = m.VCC / (m.RC + m.RE);
+      return { m, variant: 'reQ', intro: ampIntro, circ, givens: ampGivens(m, ac), parts: [
+        { kind: 'ib', text: 'חשבו את זרם הבסיס I_B.', answers: [numA('I_B', m.IB, 'A')], sol: ibSolRE },
+        { kind: 'ic', text: 'חשבו את זרם הקולט I_C ואת זרם הפולט I_E.', answers: [numA('I_C', m.IC, 'A'), numA('I_E', m.IE, 'A')], sol: [icLine(m, m.beta, m.IB, m.IC), ieLine(m)] },
+        { kind: 'vce', text: 'חשבו את המתח V_CE.', answers: [numA('V_CE', m.VCE, 'V')], sol: [vceRE, activeNote(m.VCE)] },
+        { kind: 'load', text: 'מצאו את נקודות החיתוך של קו העבודה עם הצירים.', prompt: `רשמו את V_CE בנקודה שבה ${iso('I_C = 0')}, ואת I_C בנקודה שבה ${iso('V_CE = 0')}.`,
+          answers: [numA('V_CE', m.VCC, 'V'), numA('I_C', isat, 'A')],
+          sol: [[`בקו העבודה מניחים ${iso('I_E ≈ I_C')}, ולכן:`, 'V_CE = V_CC − I_C · (R_C + R_E)'], [`כש-${iso('I_C = 0')}:`, `V_CE = V_CC = ${fV(m.VCC)}`],
+            [`כש-${iso('V_CE = 0')}:`, `I_C = V_CC / (R_C + R_E) = ${fV(m.VCC)} / (${fRs(m.RC)} + ${fRs(m.RE)}) = ${fI(isat)}`],
+            ['(בגלל ההנחה הזו נקודת העבודה המחושבת יכולה לצאת מעט מחוץ לקו.)', null]] },
+        avPart(m, ac, true)] };
+    }
+    const vi = pickVi(rng, m, ac, false); if (!vi) return null;
+    Object.assign(circ, { hide: ['R_B', 'R_C'] });
+    return { m, variant: 'reDesign', circ, givens: ampGivens(m, ac),
+      intro: ampIntro + ` נקודת העבודה: ${eqT('I_C', fI(m.IC))}, ${eqT('V_CE', fV(m.VCE))}. למבוא מחובר אות סינוסואידלי עם משרעת ${eqT('V_im', fVp(vi))}.`,
+      parts: [
+        { kind: 'ibie', text: 'חשבו את זרם הבסיס I_B ואת זרם הפולט I_E.', answers: [numA('I_B', m.IB, 'A'), numA('I_E', m.IE, 'A')],
+          sol: [['במצב פעיל:', `I_B = I_C / β = ${fI(m.IC)} / ${nB(m.beta)} = ${fI(m.IB)}`], ieLine(m)] },
+        { kind: 'rcre', text: 'חשבו את ההתנגדות R_C.', answers: [numA('R_C', m.RC, 'Ω')],
+          sol: [[`במעגל הקולט: ${iso('V_CC = I_C · R_C + V_CE + I_E · R_E')}, ולכן:`, `R_C = (V_CC − V_CE − I_E · R_E) / I_C = (${fV(m.VCC)} − ${fV(m.VCE)} − ${fI(m.IE)} · ${fRs(m.RE)}) / ${fI(m.IC)} = ${fRs(m.RC)}`]] },
+        { kind: 'rbre', text: 'חשבו את ההתנגדות R_B.', answers: [numA('R_B', m.RB, 'Ω')],
+          sol: [[`במעגל הבסיס: ${iso('V_CC = I_B · R_B + V_BE + I_E · R_E')}, ולכן:`, `R_B = (V_CC − V_BE − I_E · R_E) / I_B = (${fV(m.VCC)} − ${fV(VBE)} − ${fI(m.IE)} · ${fRs(m.RE)}) / ${fI(m.IB)} = ${fRs(m.RB)}`]] },
+        avPart(m, ac, true), vminmaxPart(m, ac, vi)] };
+  }
+
+  // ---------------- מתג ----------------
+  const VLEDS = [1.6, 1.8, 2, 2.1, 2.2, 3], VIS_SW = [3, 4, 5, 6, 9, 10, 12];
+  function swLoad(rng) {
+    for (let t = 0; t < 200; t++) {
+      const VCC = rng.pick([5, 6, 8, 9, 10, 12, 15, 18, 20, 24]), load = rng.pick(['LR', 'LR', 'RL', 'RL', 'R']), VLED = load === 'R' ? 0 : rng.pick(VLEDS);
+      const rs = NR.filter(r => { if (r < 100 || r > 10e3) return false; const i = rnd((VCC - VLED - VSAT) / r); return clean(i) && i >= 2 * mA && i <= 40 * mA; });
+      if (!rs.length) continue;
+      const R = rng.pick(rs);
+      return { VCC, load, VLED, R, Rname: load === 'R' ? 'R_C' : 'R', Isat: rnd((VCC - VLED - VSAT) / R) };
+    }
+    return null;
+  }
+  // פתרון המתג עבור מתח VB שמזין את הבסיס דרך התנגדות RB
+  function swSolve(s, VB, RB, beta) {
+    const IB = VB > VBE ? (VB - VBE) / RB : 0;
+    if (IB <= 0) return { state: 'cut', IB: 0, IC: 0, Vo: s.VCC, ratio: 0 };
+    const ratio = beta * IB / s.Isat;
+    if (ratio >= 1) return { state: 'sat', IB, IC: s.Isat, Vo: VSAT, ratio };
+    return { state: 'act', IB, IC: beta * IB, Vo: s.VCC - s.VLED - beta * IB * s.R, ratio };
+  }
+  const isLed = s => s.load !== 'R';
+  const swIntro = s => `באיור נתון טרנזיסטור NPN שפועל כמתג${isLed(s) ? '. בקולט מחוברת נורית LED דרך נגד' : ''}.`;
+  const swGivens = (s, extra) => [{ sym: 'V_BE', text: fV(VBE) }, { sym: 'V_CE(sat)', text: fV(VSAT) }].concat(isLed(s) ? [{ sym: 'V_LED', text: fV(s.VLED) }] : [], extra || []);
+  const isatLine = s => ['ברוויה V_CE = V_CE(sat). במעגל הקולט:', isLed(s)
+    ? `I_C(sat) = (V_CC − V_LED − V_CE(sat)) / R = (${fV(s.VCC)} − ${fV(s.VLED)} − ${fV(VSAT)}) / ${fRs(s.R)} = ${fI(s.Isat)}`
+    : `I_C(sat) = (V_CC − V_CE(sat)) / R_C = (${fV(s.VCC)} − ${fV(VSAT)}) / ${fRs(s.R)} = ${fI(s.Isat)}`];
+  const ibSw = (VB, RB, IB, sym) => [`במעגל הבסיס: ${iso(`${sym} = I_B · R_B + V_BE`)}, ולכן:`, `I_B = (${sym} − V_BE) / R_B = (${fV(VB)} − ${fV(VBE)}) / ${fRs(RB)} = ${fI(IB)}`];
+  // מצב + V_o, עם שורות פתרון
+  function stateSol(s, o, beta) {
+    if (o.state === 'cut') return [[`${iso('V_i = 0')} קטן מ-V_BE: אין זרם בסיס, והטרנזיסטור בקיטעון. אין זרם בקולט, ולכן אין מתח על ${isLed(s) ? 'הנגד ועל הנורית' : 'הנגד'}:`, `V_o = V_CC = ${fV(s.VCC)}`]];
+    const cmp = [null, `β · I_B = ${nB(beta)} · ${fI(o.IB)} = ${fI(beta * o.IB)}   ${o.state === 'sat' ? '>' : '<'}   I_C(sat) = ${fI(s.Isat)}`];
+    if (o.state === 'sat') return [cmp, ['β · I_B גדול מ-I_C(sat), ולכן הטרנזיסטור ברוויה:', `V_o = V_CE(sat) = ${fV(VSAT)}`]];
+    return [cmp, ['β · I_B קטן מ-I_C(sat), ולכן הטרנזיסטור במצב פעיל:', `I_C = β · I_B = ${fI(o.IC)}`],
+      [null, isLed(s) ? `V_o = V_CC − V_LED − I_C · R = ${fV(s.VCC)} − ${fV(s.VLED)} − ${fI(o.IC)} · ${fRs(s.R)} = ${fV(o.Vo)}` : `V_o = V_CC − I_C · R_C = ${fV(s.VCC)} − ${fI(o.IC)} · ${fRs(s.R)} = ${fV(o.Vo)}`]];
+  }
+  const stateAns = o => [stateChoice(o.state), numA('V_o', o.Vo, 'V')];
+  // בסיס: V_i, R_B, β עם יחס רצוי (רוויה: β·I_B ≥ 1.25·I_C(sat); פעיל: ≤ 0.85)
+  function pickBase(rng, s, want) {
+    const opts = [];
+    VIS_SW.forEach(Vi => NR.forEach(RB => {
+      if (RB < 1e3 || RB > 470e3) return;
+      const IB = rnd((Vi - VBE) / RB);
+      if (!clean(IB) || IB < 5 * uA || IB > 2 * mA) return;
+      BETAS.forEach(beta => {
+        const o = swSolve(s, Vi, RB, beta);
+        if (want === 'sat' ? o.ratio >= 1.25 && o.ratio <= 6 : o.ratio <= 0.85 && o.ratio >= 0.2 && clean(rnd(o.IC)) && clean(rnd(o.Vo)) && o.Vo >= 0.6) opts.push({ Vi, RB, IB, beta });
+      });
+    }));
+    return opts.length ? rng.pick(opts) : null;
+  }
+
+  function buildSw(rng, level) {
+    const s = swLoad(rng); if (!s) return null;
+    const circ = { k: 'sw', vcc: s.VCC, load: s.load, R: s.R, Rname: s.Rname, hide: [] };
+    const isatPart = { kind: 'isat', text: isLed(s) ? 'מהו הזרם בנורית כשהטרנזיסטור ברוויה?' : 'מהו זרם הקולט כשהטרנזיסטור ברוויה?', answers: [numA('I_C(sat)', s.Isat, 'A')], sol: [isatLine(s)] };
+    if (level === 1) {
+      Object.assign(circ, { RB: 10e3, hide: ['R_B'] });
+      const parts = [isatPart];
+      if (isLed(s)) parts.push({ kind: 'vr', text: 'מהו המתח על הנגד R?', answers: [numA('V_R', s.Isat * s.R, 'V')],
+        sol: [[null, `V_R = I_C(sat) · R = ${fI(s.Isat)} · ${fRs(s.R)} = ${fV(s.Isat * s.R)}`], [`(או: ${iso('V_R = V_CC − V_LED − V_CE(sat)')}.)`, null]] });
+      parts.push({ kind: 'vo', text: 'מהו מתח המוצא V_o?', answers: [numA('V_o', VSAT, 'V')], sol: [['המוצא מחובר לקולט, והטרנזיסטור ברוויה:', `V_o = V_CE(sat) = ${fV(VSAT)}`]] });
+      return { m: s, variant: 'sat' + s.load, circ, givens: swGivens(s), intro: swIntro(s) + ' במבוא V_i מחובר מתח שמכניס את הטרנזיסטור לרוויה.', parts };
+    }
+    if (level === 2 || level === 3) {
+      const want = level === 3 || rng.next() < 0.65 ? 'sat' : 'act', b = pickBase(rng, s, want); if (!b) return null;
+      const o = swSolve(s, b.Vi, b.RB, b.beta), ibmin = rnd(s.Isat / b.beta);
+      Object.assign(circ, { RB: b.RB });
+      const ibminPart = { kind: 'ibmin', text: 'מהו זרם הבסיס המזערי שמכניס את הטרנזיסטור לרוויה?', answers: [numA('I_B(min)', ibmin, 'A')], sol: [[null, `I_B(min) = I_C(sat) / β = ${fI(s.Isat)} / ${nB(b.beta)} = ${fI(ibmin)}`]] };
+      if (level === 2) {
+        return { m: Object.assign({}, s, b), variant: want + s.load, circ, givens: swGivens(s, [{ sym: 'β', text: nB(b.beta) }]), intro: swIntro(s) + ` במבוא מחובר מתח קבוע ${eqT('V_i', fV(b.Vi))}.`,
+          parts: [{ kind: 'ib', text: 'חשבו את זרם הבסיס I_B.', answers: [numA('I_B', o.IB, 'A')], sol: [ibSw(b.Vi, b.RB, o.IB, 'V_i')] }, isatPart,
+            { kind: 'state', text: 'מהו מצב הטרנזיסטור, ומהו מתח המוצא V_o?', answers: stateAns(o), sol: stateSol(s, o, b.beta) }, ibminPart] };
+      }
+      // רמה 3: תכנון
+      const dv = rng.pick(['rbmax', 'rbmax', 'vimin', 'betamin']), giv = [], design = {};
+      if (dv === 'rbmax') {
+        circ.hide = ['R_B']; giv.push({ sym: 'β', text: nB(b.beta) });
+        const v = rnd((b.Vi - VBE) / ibmin);
+        Object.assign(design, { kind: 'rbmax', text: 'מהי ההתנגדות המרבית של R_B שעבורה הטרנזיסטור עדיין ברוויה?', answers: [numA('R_B(max)', v, 'Ω')],
+          sol: [[`ברוויה דרוש ${iso('I_B ≥ I_B(min)')}, ולכן:`, `R_B(max) = (V_i − V_BE) / I_B(min) = (${fV(b.Vi)} − ${fV(VBE)}) / ${fI(ibmin)} = ${fRs(v)}`]] });
+      } else if (dv === 'vimin') {
+        giv.push({ sym: 'β', text: nB(b.beta) });
+        const v = rnd(VBE + ibmin * b.RB);
+        Object.assign(design, { kind: 'vimin', text: 'מהו מתח המבוא המזערי V_i שמכניס את הטרנזיסטור לרוויה?', answers: [numA('V_i(min)', v, 'V')],
+          sol: [['במעגל הבסיס, עם I_B(min):', `V_i(min) = V_BE + I_B(min) · R_B = ${fV(VBE)} + ${fI(ibmin)} · ${fRs(b.RB)} = ${fV(v)}`]] });
+      } else {
+        const v = rnd(s.Isat / o.IB);
+        Object.assign(design, { kind: 'betamin', text: 'מהו ה-β המזערי של הטרנזיסטור שעבורו הוא ברוויה?', answers: [numA('β(min)', v, '')],
+          sol: [ibSw(b.Vi, b.RB, o.IB, 'V_i'), [`ברוויה דרוש ${iso('β · I_B ≥ I_C(sat)')}, ולכן:`, `β(min) = I_C(sat) / I_B = ${fI(s.Isat)} / ${fI(o.IB)} = ${nS(v)}`]] });
+      }
+      const viTxt = dv === 'vimin' ? ` כשבמבוא V_i יש מתח גבוה מספיק הטרנזיסטור ברוויה, וכש-${iso('V_i = 0')} הוא בקיטעון.` : ` במבוא מחובר מתח של ${fV(b.Vi)} או של 0 V.`;
+      const parts = [isatPart];
+      if (dv !== 'betamin') parts.push(ibminPart);
+      parts.push(design, { kind: 'vo2', text: `מהו מתח המוצא כשהטרנזיסטור ברוויה, ומהו כש-${iso('V_i = 0')}?`,
+        prompt: `רשמו את V_o ברוויה, ואת V_o בקיטעון (${iso('V_i = 0')}).`, answers: [numA('V_o(sat)', VSAT, 'V'), numA('V_o(cut)', s.VCC, 'V')],
+        sol: [['ברוויה:', `V_o = V_CE(sat) = ${fV(VSAT)}`], ...stateSol(s, { state: 'cut' }, b.beta)] });
+      return { m: Object.assign({}, s, b, { dv }), variant: dv + s.load, circ, givens: swGivens(s, giv), intro: swIntro(s) + viTxt, parts };
+    }
+    if (level === 4) return buildPulse(rng, s, circ);
+    return buildSensor(rng, s, circ);
+  }
+
+  // רמה 4: אות מדרגות במבוא; לא תמיד רוויה
+  const VPULSE = [1.5, 2, 2.5, 3, 4, 5, 6, 8, 10, 12];
+  function buildPulse(rng, s, circ) {
+    const three = rng.next() < 0.5;
+    for (let t = 0; t < 60; t++) {
+      const RB = rng.pick(NR.filter(r => r >= 1e3 && r <= 220e3)), beta = rng.pick(BETAS);
+      const lv = VPULSE.map(v => ({ v, o: swSolve(s, v, RB, beta) })).filter(x => clean(rnd(x.o.IB)));
+      const act = lv.filter(x => x.o.state === 'act' && x.o.ratio >= 0.2 && x.o.ratio <= 0.85 && clean(rnd(x.o.IC)) && clean(rnd(x.o.Vo)) && x.o.Vo >= 0.6);
+      const sat = lv.filter(x => x.o.ratio >= 1.25);
+      let levels;
+      if (three) { if (!act.length || !sat.length) continue; levels = [rng.pick(act), rng.pick(sat)].sort((a, b) => a.v - b.v); }
+      else { const pool = rng.next() < 0.5 ? act : sat; if (!pool.length) continue; levels = [rng.pick(pool)]; }
+      const ds = [0.5, 1, 1.5, 2, 3, 4], segs = [{ v: 0, d: rng.pick(ds) }].concat(levels.map(x => ({ v: x.v, d: rng.pick(ds), o: x.o })));
+      const { T, ticks } = segTicks(segs), vmax = Math.max(...segs.map(x => x.v));
+      const viPanel = { label: 'V_i', unit: 'V', vmin: 0, vmax, marks: segs.map(x => x.v), pts: stepPts(segs, x => x.v) };
+      const voOf = x => (x.v === 0 ? s.VCC : x.o.Vo);
+      const voPanel = { label: 'V_o', unit: 'V', vmin: 0, vmax: s.VCC, marks: segs.map(voOf), pts: stepPts(segs, voOf) };
+      Object.assign(circ, { RB });
+      const parts = [{ kind: 'p0', text: `מהו מתח המוצא V_o כש-${iso('V_i = 0')}?`, answers: [numA('V_o', s.VCC, 'V')], sol: stateSol(s, { state: 'cut' }, beta) }];
+      levels.forEach(x => parts.push({ kind: 'p' + x.o.state, text: `כש-${eqT('V_i', fV(x.v))}: מהו מצב הטרנזיסטור, ומהו מתח המוצא V_o?`, answers: stateAns(x.o),
+        sol: [ibSw(x.v, RB, x.o.IB, 'V_i'), isatLine(s), ...stateSol(s, x.o, beta)], vi: x.v }));
+      parts.push({ kind: 'sketch', text: 'העתיקו למחברת את מתח המבוא, וסרטטו מתחתיו, בהתאמה, את מתח המוצא V_o.', selfcheck: { button: 'הצג את הגרף הנכון להשוואה', html: waveSvg([viPanel, voPanel], 2 * T, ticks, 'ms') }, sol: [] });
+      return { m: Object.assign({}, s, { RB, beta, segs }), variant: 'pulse' + levels.map(x => x.o.state).join(''), circ, givens: swGivens(s, [{ sym: 'β', text: nB(beta) }]),
+        intro: swIntro(s) + ' למבוא מחובר אות מדרגות מחזורי, כמתואר בגרף שמתחת למעגל.', extra: waveSvg([viPanel], 2 * T, ticks, 'ms'), parts };
+    }
+    return null;
+  }
+
+  // רמה 5: חיישן במחלק מתח שמזין את הבסיס (תבנן)
+  const SW_SENS = { LDR: { name: 'חיישן אור (LDR)', q: 'עוצמת ההארה היא', unit: 'lux' }, RTC: { name: 'חיישן טמפרטורה (RTC)', q: 'הטמפרטורה היא', unit: '°C' } };
+  const fX = (x, unit) => iso(numStr(x) + (unit === '°C' ? '°C' : ' ' + unit));
+  function buildSensor(rng, s, circ) {
+    const type = rng.pick(['LDR', 'LDR', 'RTC']), ch = rng.pick(SENSORS[type]), meta = SW_SENS[type];
+    const nodes = ch.pts.slice(1, -1).filter(p => p[1] > 0 && Math.abs(p[1] / ch.y.step - Math.round(p[1] / ch.y.step)) < 1e-9);
+    for (let t = 0; t < 80; t++) {
+      const at = rng.pick(nodes), Rs = rnd(at[1] * K), pos = rng.next() < 0.5 ? 'top' : 'bot';
+      const R1 = rng.pick(NR.filter(r => r >= Rs / 5 && r <= Rs * 5)), top = pos === 'top' ? Rs : R1, bot = pos === 'top' ? R1 : Rs;
+      const Vth = rnd(s.VCC * bot / (top + bot)), Rth = rnd(par(top, bot));
+      if (!clean(Vth) || Vth < 1.2 || Vth > s.VCC - 0.5) continue;
+      const RB = rng.pick(NR.filter(r => r >= 1e3 && r <= 100e3)), beta = rng.pick(BETAS);
+      const o = swSolve(s, Vth, RB + Rth, beta);
+      if (!(o.ratio >= 1.25 || (o.ratio <= 0.85 && o.ratio >= 0.2 && o.Vo >= 0.6))) continue;
+      Object.assign(circ, { RB, base: { sensor: { type }, R4: R1, pos } });
+      const tol = 0.05;
+      return { m: Object.assign({}, s, { type, ch, at, Rs, R1, pos, Vth, Rth, RB, beta }), variant: 'sens' + type + o.state, circ, givens: swGivens(s, [{ sym: 'β', text: nB(beta) }]),
+        intro: swIntro(s) + ` המתח בבסיס נקבע על ידי מחלק מתח עם ${meta.name}, שהאופיין שלו נתון בגרף שמתחת למעגל. ${meta.q} ${fX(at[0], meta.unit)}.`,
+        extra: chartSvg(ch, [], ''),
+        parts: [
+          { kind: 'rs', text: 'מהי התנגדות החיישן R_S?', answers: [numA('R_S', Rs, 'Ω', { tol })], sol: [[`קוראים מהאופיין ב-${fX(at[0], meta.unit)}:`, `R_S = ${fRs(Rs)}`]] },
+          { kind: 'thev', text: 'חשבו את מעגל תבנן של מחלק המתח בנקודה A (בלי R_B והטרנזיסטור).', answers: [numA('V_th', Vth, 'V'), numA('R_th', Rth, 'Ω')],
+            sol: [['מתח תבנן הוא המתח בנקודה A כשהיא מנותקת מ-R_B:', `V_th = V_CC · ${pos === 'top' ? 'R_1 / (R_S + R_1)' : 'R_S / (R_1 + R_S)'} = ${fV(s.VCC)} · ${fRs(bot)} / (${fRs(top)} + ${fRs(bot)}) = ${fV(Vth)}`],
+              ['התנגדות תבנן: מקצרים את V_CC, ושני הנגדים במקביל:', `R_th = R_S ∥ R_1 = ${fRs(Rs)} ∥ ${fRs(R1)} = ${fRs(Rth)}`]] },
+          { kind: 'ib', text: 'חשבו את זרם הבסיס I_B.', answers: [numA('I_B', o.IB, 'A')],
+            sol: [['במעגל הבסיס, עם מעגל תבנן:', `I_B = (V_th − V_BE) / (R_th + R_B) = (${fV(Vth)} − ${fV(VBE)}) / (${fRs(Rth)} + ${fRs(RB)}) = ${fI(o.IB)}`]] },
+          { kind: 'state', text: 'מהו מצב הטרנזיסטור, ומהו מתח המוצא V_o?', answers: stateAns(o), sol: [isatLine(s), ...stateSol(s, o, beta)] },
+        ] };
+    }
+    return null;
+  }
+
+  function basicEx(rng, level) {
+    const b = buildBasic(rng, level);
+    if (!b) return null;
+    const m = b.m;
+    b.circ = m.base === 'vcc'
+      ? { k: 'amp', dc: true, vcc: b.vcc === null ? null : m.VCC, RB: m.RB, RC: m.RC, hide: b.hide || [] }
+      : { k: 'sw', vcc: b.vcc === null ? null : m.VCC, RB: m.RB, load: 'R', R: m.RC, Rname: 'R_C', hide: b.hide || [] };
+    const g = [];
+    if (b.circ.vcc != null) g.push({ sym: 'V_CC', text: fV(m.VCC) });
+    if (m.base === 'vbb') g.push({ sym: 'V_i', text: fV(m.VB) });
+    if (b.variant !== 'graph') g.push({ sym: 'β', text: nB(m.beta) });
+    g.push({ sym: 'V_BE', text: fV(VBE) });
+    if (b.satGiven) g.push({ sym: 'V_CE(sat)', text: fV(VSAT) });
+    b.givens = g;
+    if (b.variant === 'graph') b.extra = outChar(m.ch);
+    return b;
+  }
+
+  function makeExercise(opts) {
+    const seed = opts.seed != null ? opts.seed >>> 0 : randomSeed(), rng = makeRng(seed), level = opts.level, mode = opts.mode || 'basic';
+    let track = 'basic';
+    if (mode === 'adv') {
+      const a = opts.amp !== false, w = opts.sw !== false;
+      track = a && w ? (rng.next() < 0.8 ? 'amp' : 'sw') : a ? 'amp' : 'sw';
+    }
+    let b = null;
+    for (let t = 0; t < 80 && !b; t++) b = track === 'basic' ? basicEx(rng, level) : track === 'amp' ? buildAmp(rng, level) : buildSw(rng, level);
+    if (!b) throw new Error('no exercise');
+    const pre = { basic: 'B', amp: 'A', sw: 'S' }[track];
+    return { version: VERSION, seed, mode, track, level, kind: pre + level + b.variant, variant: b.variant, m: b.m, circ: b.circ, text: b.intro, parts: b.parts,
+      extra: b.extra || null, givens: b.givens };
+  }
+  const givensList = ex => ex.givens;
+  function solutionHtml(ex, pi) {
+    const part = ex.parts[pi], esc = global.Core.esc, symHtml = global.Core.symHtml;
+    if (!part.sol || !part.sol.length) return '';
+    const li = ([note, eq]) => `<li>${note ? `<div class="sn">${symHtml(esc(note))}</div>` : ''}${eq ? `<div class="eq" dir="ltr">${symHtml(esc(eq))}</div>` : ''}</li>`;
+    return '<ol class="steps">' + part.sol.filter(Boolean).map(li).join('') + '</ol>';
+  }
+  // ציור התרגיל: המעגל, ומתחתיו גרף (אופייני מוצא, אופיין חיישן או אות המבוא) אם יש
+  function renderEx(ex) {
+    const c = ex.circ, r = c.k === 'amp' ? renderAmp(c) : renderSwitch(c);
+    if (!ex.extra) return r;
+    const extra = ex.extra, ew = +extra.match(/width="([\d.]+)"/)[1], eh = +extra.match(/height="([\d.]+)"/)[1];
+    const W = Math.max(r.width, ew), H = r.height + eh + 10, nest = (svg, x, y) => svg.replace('<svg ', `<svg x="${rd(x)}" y="${rd(y)}" `);
+    return { svg: svgWrap(W, H, nest(r.svg, (W - r.width) / 2, 0) + nest(extra, (W - ew) / 2, r.height + 10)), width: W, height: H };
+  }
+
+  global.Engine = {
+    VERSION, MAX_ATTEMPTS, LEVELS, VBE, VSAT, makeRng, randomSeed, Units, fmtR, fmtV, SENSORS, valueAt, dcSolve, swSolve,
+    makeExercise, givensList, solutionHtml, minLevel: () => 1,
+    Draw: { renderAmp, renderSwitch, renderEquiv, outChar, chartSvg, renderEx, waveSvg },
+  };
+})(typeof window !== 'undefined' ? window : globalThis);
+</script>
+
+<!-- ======================= ממשק (common/core.js) ======================= -->
+<script>
+(function () {
+  'use strict';
+  const E = window.Engine, $ = id => document.getElementById(id);
+  const mode = () => ($('mAdv').checked ? 'adv' : 'basic');
+  const readSettings = () => ({ mode: mode(), amp: $('tAmp').checked, sw: $('tSw').checked, level: +$('level').value });
+  let curMode = 'basic';
+  function syncSettings() {
+    const s = readSettings(), max = E.LEVELS[s.mode], cur = +$('level').value || 1;
+    if ($('level').options.length !== max) $('level').innerHTML = Array.from({ length: max }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join('');
+    $('level').value = String(Math.min(cur, max));
+    $('tracksBox').hidden = s.mode !== 'adv';
+    const bad = s.mode === 'adv' && !s.amp && !s.sw;
+    $('setNote').textContent = bad ? 'יש לבחור לפחות נושא אחד.' : '';
+    $('start').disabled = bad;
+  }
+  ['mBasic', 'mAdv', 'tAmp', 'tSw', 'level'].forEach(id => $(id).addEventListener('change', syncSettings));
+  syncSettings();
+  // מספר הרמות תלוי בסוג התרגול
+  const engine = { VERSION: E.VERSION, MAX_ATTEMPTS: E.MAX_ATTEMPTS, get MAX_LEVEL() { return E.LEVELS[curMode]; } };
+  Core.mountUI({
+    engine, units: E.Units, prefixes: ['', 'M', 'k', 'm', 'µ'],
+    readSettings, minLevel: () => 1,
+    makeExercise: (s, level) => { curMode = s.mode; return E.makeExercise({ mode: s.mode, level, amp: s.amp, sw: s.sw }); },
+    ctypeHtml: ex => (ex.mode === 'basic' ? 'תרגול בסיסי' : 'תרגול מתקדם'),
+    render: ex => E.Draw.renderEx(ex),
+    givens: ex => E.givensList(ex),
+    parts: ex => ex.parts,
+    solution: { title: 'פתרון', html: (ex, pi) => E.solutionHtml(ex, pi), onCorrect: true },
+    failSuffix: '',
+  });
+})();
+</script>
+</body>
+</html>

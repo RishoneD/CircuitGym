@@ -87,7 +87,7 @@
 
   // ---------- גרסה, קישורים ופרקים בדף הנחיתה ----------
   {
-    const pages = { landing: '../index.html', ohm: '../ohm/index.html', mesh: '../mesh/index.html', ac: '../ac/index.html', opamp: '../opamp/index.html', comparator: '../comparator/index.html', filters: 'index.html' }, vers = {};
+    const pages = { landing: '../index.html', ohm: '../ohm/index.html', mesh: '../mesh/index.html', ac: '../ac/index.html', opamp: '../opamp/index.html', comparator: '../comparator/index.html', transistor: '../transistor/index.html', filters: 'index.html' }, vers = {};
     for (const [name, path] of Object.entries(pages)) {
       const url = new URL(path, location.href), src = await (await fetch(url, { cache: 'no-store' })).text();
       vers[name] = (/const VERSION = '(v\d+\.\d+)'/.exec(src) || [])[1];
@@ -123,7 +123,7 @@
     const chapters = [...land.querySelectorAll('h2.chapter')].map(h => h.textContent.trim() + ': ' +
       [...h.nextElementSibling.querySelectorAll('a.card')].map(a => a.getAttribute('href').split('/')[0]).join(','));
     log('landing: ' + chapters.join(' | '));
-    ok(chapters.join(' | ') === 'חשמל: ohm,mesh,ac | אלקטרוניקה: opamp,comparator,filters', 'landing chapters');
+    ok(chapters.join(' | ') === 'חשמל: ohm,mesh,ac | אלקטרוניקה: opamp,comparator,transistor,filters', 'landing chapters');
   }
 
   // ---------- ריצה המונית ----------

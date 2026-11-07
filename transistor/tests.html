@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>בדיקות: תרגול טרנזיסטור</title>
+<style>
+  body { font-family: "Segoe UI", Arial, sans-serif; margin: 16px; color: #1f2937; background: #f4f6f9; }
+  h1 { font-size: 20px; } h2 { font-size: 17px; margin-top: 24px; }
+  pre { background: #fff; border: 1px solid #d9dee6; border-radius: 8px; padding: 10px; direction: ltr; text-align: left; white-space: pre-wrap; font-size: 13px; }
+  .pass { color: #15803d; font-weight: bold; } .fail { color: #b42318; font-weight: bold; }
+  .gal { direction: ltr; display: grid; grid-template-columns: repeat(auto-fill, minmax(460px, 1fr)); gap: 12px; }
+  figure { margin: 0; background: #fff; border: 1px solid #d9dee6; border-radius: 8px; padding: 6px; min-width: 0; }
+  figcaption { font-size: 12px; color: #6b7280; direction: rtl; text-align: right; }
+  figure svg { display: block; width: 100%; height: auto; }
+  figure.rev { direction: rtl; font-size: 14px; } figure.rev svg { max-width: 520px; margin: 0 auto; }
+  figure.rev ol { margin: 4px 0; padding-inline-start: 20px; } figure.rev .giv { color: #374151; }
+  figure.rev .self svg { max-width: 380px; margin: 4px 0; }
+</style>
+</head>
+<body>
+<h1>בדיקות מנוע הטרנזיסטור וגלריית ציורים</h1>
+<p>דורש שרת מקומי.</p>
+<div id="summary"></div>
+<pre id="log"></pre>
+<h2>תרגילים לדוגמה (תרגול בסיסי)</h2>
+<div id="review" class="gal"></div>
+<h2>תרגילים לדוגמה (מתקדם: מגבר)</h2>
+<div id="reviewAmp" class="gal"></div>
+<h2>תרגילים לדוגמה (מתקדם: מתג)</h2>
+<div id="reviewSw" class="gal"></div>
+<h2>גלריה</h2>
+<div id="gallery" class="gal"></div>
+
+<script>
+(async function () {
+  const lines = [], log = s => lines.push(s);
+  await new Promise((res, rej) => { const c = document.createElement('script'); c.src = '../common/core.js'; c.onload = res; c.onerror = rej; document.head.appendChild(c); });
+  const html = await (await fetch('index.html', { cache: 'no-store' })).text();
+  const sc = document.createElement('script');
+  sc.textContent = new DOMParser().parseFromString(html, 'text/html').getElementById('engine').textContent;
+  document.head.appendChild(sc);
+  const E = window.Engine, D = E.Draw;
+  const gal = [];
+  const add = (cap, r) => gal.push(`<figure>${typeof r === 'string' ? r : r.svg}<figcaption>${cap}</figcaption></figure>`);
+  add('שאלה 3: מגבר עם R_E ו-C_E, מקור AC, R_L', D.renderAmp({ vcc: 10, RB: 200e3, RC: 2e3, RE: 500, CE: true, RL: 2e3, src: 'ac' }));
+  add('שאלה 1: מגבר בלי R_E (V_CC ו-R_B, R_C נעלמים)', D.renderAmp({ RB: 565e3, RC: 3e3, RL: 6e3, src: 'ac', hide: ['R_B', 'R_C'] }));
+  add('שאלה 2: מגבר עם R_E, הדק V_i', D.renderAmp({ vcc: 12, RB: 1e6, RC: 5e3, RE: 1e3, CE: true, RL: 2e3, src: 'term', hide: ['R_B', 'R_C'] }));
+  add('שאלה 4: מגבר, R_B = 1.13 MΩ', D.renderAmp({ vcc: 12, RB: 1.13e6, RC: 4e3, RL: 3e3, src: 'term', hide: ['R_C'] }));
+  add('שאלה 3 (מתג): LED ואז נגד בקולט', D.renderSwitch({ vcc: 5, RB: 10e3, load: 'LR', R: 200, hide: ['R_B'] }));
+  add('מתג: נגד ואז LED', D.renderSwitch({ vcc: 9, RB: 47e3, load: 'RL', R: 470 }));
+  add('מתג: נגד בלבד בקולט', D.renderSwitch({ vcc: 12, RB: 100e3, load: 'R', R: 2e3, Rname: 'R_C' }));
+  add('מתג: LDR במחלק בבסיס ("הנורית נדלקת בחושך")', D.renderSwitch({ vcc: 9, RB: 10e3, load: 'LR', R: 330, base: { sensor: { type: 'LDR' }, R4: 20e3, pos: 'bot' } }));
+  add('מתג: RTC במחלק בבסיס', D.renderSwitch({ vcc: 12, RB: 4.7e3, load: 'RL', R: 500, base: { sensor: { type: 'RTC' }, R4: 1e3, pos: 'top' } }));
+  add('מעגל תמורה לאות קטן (לבדיקה עצמית)', D.renderEquiv({}));
+  add('אופייני מוצא עם קו עבודה ונקודת עבודה (כמו שאלה 3 בגרף)', D.outChar({ beta: 50, IBs: [20, 40, 60, 80, 100], vmax: 10, imax: 5, vstep: 2, istep: 1, load: { vcc: 10, isat: 5 }, q: { vce: 6, ic: 2 } }));
+  add('אופייני מוצא בלי קו עבודה (התלמיד מסרטט)', D.outChar({ beta: 100, IBs: [5, 10, 15], vmax: 12, imax: 2, vstep: 2, istep: 0.5 }));
+  document.getElementById('gallery').innerHTML = gal.join('');
+  log('gallery: ' + gal.length);
+
+  // ---------------- בדיקות התרגול הבסיסי ----------------
+  let fails = 0, checks = 0;
+  const fail = (ex, msg) => { if (fails++ < 30) log(`FAIL seed ${ex.seed} L${ex.level} ${ex.kind}: ${msg}`); };
+  const near = (a, b, tol) => Math.abs(a - b) <= (tol || 1e-6) * Math.max(1, Math.abs(b));
+  const isGrid = (x, step) => Math.abs(x / step - Math.round(x / step)) < 1e-9;
+  const VBE = 0.7, VSAT = 0.2;
+  // פותר עצמאי: מצב הטרנזיסטור במעגל ממתח קבוע
+  function solve(VCC, VB, RB, RC, beta) {
+    const IB = VB > VBE && isFinite(RB) ? (VB - VBE) / RB : 0, Isat = (VCC - VSAT) / RC;
+    if (IB === 0) return { state: 'cut', IB, IC: 0, VCE: VCC, ratio: 0 };
+    const ratio = beta * IB / Isat;
+    return ratio >= 1 ? { state: 'sat', IB, IC: Isat, VCE: VSAT, ratio } : { state: 'act', IB, IC: beta * IB, VCE: VCC - beta * IB * RC, ratio };
+  }
+  const kinds = {};
+  for (let lv = 1; lv <= 3; lv++) for (let s = 1; s <= 4000; s++) {
+    let ex;
+    try { ex = E.makeExercise({ mode: 'basic', level: lv, seed: s }); } catch (e) { fail({ seed: s, level: lv, kind: '?' }, e.message); continue; }
+    kinds[ex.kind] = (kinds[ex.kind] || 0) + 1;
+    const m = ex.m, P = ex.parts, ans = k => { const p = P.find(q => q.kind === k); return p && p.answers.map(a => a.value); };
+    const r = E.Draw.renderEx(ex);
+    checks++;
+    if (/NaN|undefined|Infinity/.test(r.svg + ex.text + JSON.stringify(P))) fail(ex, 'NaN/undefined in text or drawing');
+    P.forEach(p => {
+      if (p.selfcheck) { if (!p.selfcheck.html.includes('<svg')) fail(ex, 'selfcheck without graph'); return; }
+      if (!E.solutionHtml(ex, P.indexOf(p))) fail(ex, 'no solution for ' + p.kind);
+      p.answers.forEach(a => {
+        if (a.type === 'num' && !(a.value > 0 && isFinite(a.value))) fail(ex, `bad value ${p.kind} ${a.sym}=${a.value}`);
+        if (a.type === 'choice' && !a.options.some(o => o.value === a.value)) fail(ex, 'choice value not in options');
+      });
+    });
+    if (lv === 1 && (P.length !== 1 || !ex.text.includes(P[0].text))) fail(ex, 'level 1 must be one question in the text');
+    if (ex.variant === 'graph') {
+      const ch = ex.m.ch, VCC = ch.load.vcc, isat = ch.load.isat, q = ch.q;
+      if (!isGrid(VCC, ch.vstep) || !isGrid(isat, ch.istep) || !isGrid(q.vce, ch.vstep) || !isGrid(q.ic, ch.istep / 2) || VCC > ch.vmax || isat > ch.imax) fail(ex, 'graph values off the grid');
+      if (!near(q.ic, isat * (1 - q.vce / VCC))) fail(ex, 'Q not on the load line');
+      const ibq = ch.IBs.find(ib => near(ch.beta * ib / 1000, q.ic));
+      if (ibq == null) fail(ex, 'Q not on a drawn I_B curve');
+      if (ch.IBs.some(ib => ch.beta * ib / 1000 > ch.imax)) fail(ex, 'curve above the graph');
+      const RC = VCC / (isat * 1e-3), beta = q.ic * 1000 / ibq, RB = (VCC - VBE) / (ibq * 1e-6);
+      if (!near(ans('gvcc')[0], VCC) || !near(ans('grc')[0], RC) || !near(ans('gbeta')[0], beta) || !near(ans('grb')[0], RB, 1e-3)) fail(ex, 'graph answers');
+      if (ex.circ.vcc != null || r.svg.includes(E.fmtR(m.RC)) || r.svg.includes(E.fmtR(m.RB))) fail(ex, 'graph exercise leaks V_CC/R_C/R_B in the drawing');
+      continue;
+    }
+    // נקודת העבודה מהפותר העצמאי
+    const o = solve(m.VCC, m.VB, m.RB, m.RC, m.beta);
+    if (o.state !== 'act' || o.ratio > 0.97) fail(ex, 'Q-point not clearly active: ' + o.ratio.toFixed(3));
+    if (o.VCE < 1 - 1e-9 || o.VCE > m.VCC - 1 + 1e-9) fail(ex, 'V_CE too close to the edges');
+    [[m.IB, 'IB'], [m.IC, 'IC'], [m.VCE, 'VCE'], [m.RB, 'RB'], [m.RC, 'RC']].forEach(([v, n]) => { if (!E.Units.isClean(v)) fail(ex, n + ' not clean: ' + v); });
+    const want = { ib: [o.IB], ic: P.find(p => p.kind === 'ic') && P.find(p => p.kind === 'ic').answers.length === 2 ? [o.IC, (m.beta + 1) * o.IB] : [o.IC], vce: [o.VCE],
+      load: [m.VCC, m.VCC / m.RC], rc: [m.RC], rb: [m.RB], vcc: [m.VCC] };
+    P.forEach(p => { if (want[p.kind]) { const got = p.answers.map(a => a.value); if (got.length !== want[p.kind].length || got.some((g, i) => !near(g, want[p.kind][i], 1e-4))) fail(ex, `${p.kind}: ${got} != ${want[p.kind]}`); } });
+    // שאלות הפוכות: מה שנשאל מוסתר בציור
+    if (ex.variant === 'revRC' && (r.svg.includes('>' + E.fmtR(m.RC) + '<') || r.svg.includes('>' + E.fmtR(m.RB) + '<'))) fail(ex, 'R_C/R_B shown although asked');
+    if (ex.variant === 'revVCC' && (r.svg.includes('V<tspan dy="4" font-size="11">CC</tspan><tspan dy="-4">​</tspan> =') || r.svg.includes('>' + E.fmtR(m.RB) + '<'))) fail(ex, 'V_CC/R_B shown although asked');
+    if (ex.variant === 'revRC' || ex.variant === 'revVCC') { if (!ex.text.includes(E.Units.format(m.IC, 'A', true)) || !ex.text.includes(E.Units.format(m.VCE, 'V', false))) fail(ex, 'Q-point not given in the text'); }
+    // מצב אחרי שינוי: פתרון עצמאי עם הרכיב ששונה
+    const st = P.find(p => p.kind === 'state');
+    if (st) {
+      const md = Object.assign({ VB: m.VB, RB: m.RB, RC: m.RC, beta: m.beta }, st.mod);
+      const s2 = solve(m.VCC, md.VB, md.RB, md.RC, md.beta);
+      if (st.answers[0].value !== s2.state) fail(ex, `state ${st.answers[0].value} != ${s2.state}`);
+      if (!near(st.answers[1].value, s2.VCE, 1e-4)) fail(ex, `V_CE after change ${st.answers[1].value} != ${s2.VCE}`);
+      if (s2.state === 'sat' && s2.ratio < 1.2) fail(ex, 'saturation too close to the edge');
+      if (s2.state === 'act' && s2.ratio > 0.9) fail(ex, 'active too close to saturation');
+      if (!E.givensList(ex).some(g => g.sym === 'V_CE(sat)')) fail(ex, 'V_CE(sat) not given');
+    }
+    if (m.base === 'vbb' && !E.givensList(ex).some(g => g.sym === 'V_i')) fail(ex, 'V_i not given');
+  }
+  log(`basic: ${checks} exercises, ${fails} failures`);
+  log('kinds: ' + Object.entries(kinds).map(([k, v]) => k + '=' + v).join(' '));
+
+  // ---------------- בדיקות התרגול המתקדם ----------------
+  const PF = { M: 1e6, k: 1e3, '': 1, m: 1e-3, 'µ': 1e-6 };
+  const qty = s => { const t = String(s).replace(/[⁦⁩]/g, '').replace('−', '-'), mm = t.match(/(-?[\d.]+)\s*([Mkmµ]?)/); return +mm[1] * PF[mm[2]]; };
+  const giv = (ex, sym) => { const g = ex.givens.find(x => x.sym === sym); return g ? qty(g.text) : null; };
+  const vimOf = ex => { const mm = ex.text.replace(/[⁦⁩]/g, '').match(/V_im = ([\d.]+) (m?)V/); return mm ? +mm[1] * (mm[2] ? 1e-3 : 1) : null; };
+  const par = (a, b) => a * b / (a + b);
+  const fails0 = fails; let advN = 0;
+  const kindsA = {};
+  function check(ex, p, want, tol) {
+    const got = p.answers.map(a => a.value);
+    if (got.length !== want.length || got.some((g, i) => (typeof want[i] === 'string' ? g !== want[i] : !near(g, want[i], tol || 2e-3)))) fail(ex, `${p.kind}: ${JSON.stringify(got)} != ${JSON.stringify(want)}`);
+  }
+  // מתג: פותר עצמאי (Isat מהעומס)
+  function swS(VCC, VLED, R, VB, RB, beta) {
+    const Isat = (VCC - VLED - VSAT) / R, IB = VB > VBE ? (VB - VBE) / RB : 0;
+    if (!IB) return { state: 'cut', IB: 0, Vo: VCC, ratio: 0, Isat };
+    const ratio = beta * IB / Isat;
+    return ratio >= 1 ? { state: 'sat', IB, Vo: VSAT, ratio, Isat } : { state: 'act', IB, Vo: VCC - VLED - beta * IB * R, ratio, Isat };
+  }
+  for (const tr of ['amp', 'sw']) for (let lv = 1; lv <= 5; lv++) for (let s = 1; s <= 1500; s++) {
+    let ex;
+    try { ex = E.makeExercise({ mode: 'adv', level: lv, seed: s, amp: tr === 'amp', sw: tr === 'sw' }); } catch (e) { fail({ seed: s, level: lv, kind: tr }, e.message); continue; }
+    advN++; kindsA[ex.kind] = (kindsA[ex.kind] || 0) + 1;
+    const c = ex.circ, m = ex.m, P = ex.parts, r = E.Draw.renderEx(ex);
+    if (/NaN|undefined|Infinity/.test(r.svg + ex.text + JSON.stringify(P))) fail(ex, 'NaN/undefined in text or drawing');
+    if (/dy="[^"\d-]/.test(r.svg + P.map(p => p.selfcheck ? p.selfcheck.html : '').join(''))) fail(ex, 'invalid dy in drawing');
+    P.forEach((p, i) => {
+      if (p.selfcheck) { if (!p.selfcheck.html.includes('<svg')) fail(ex, 'selfcheck without drawing'); return; }
+      if (!E.solutionHtml(ex, i)) fail(ex, 'no solution for ' + p.kind);
+      p.answers.forEach(a => { if (a.type === 'num' && !(isFinite(a.value) && a.value !== 0)) fail(ex, `bad value ${p.kind} ${a.sym}`); if (a.type === 'num' && a.value < 0 && !a.signed) fail(ex, 'negative answer not signed'); });
+    });
+    // במתג רמה 1 R_B מוסתר רק כי אינו רלוונטי
+    if (!(tr === 'sw' && lv === 1)) (c.hide || []).forEach(n => { const v = { R_B: c.RB, R_C: c.R || c.RC }[n]; if (v && r.svg.includes('>' + E.fmtR(v) + '<')) fail(ex, n + ' value shown although asked'); });
+    if (tr === 'amp') {
+      const beta = m.beta, hie = giv(ex, 'h_ie'), RL = c.RL, RC = c.RC, RB = c.RB, RE = c.RE || 0, VCC = m.VCC;
+      if (!hie || !RL) fail(ex, 'h_ie / R_L missing');
+      // נקודת העבודה מחדש (עם R_E: I_E = (β+1)·I_B)
+      const IB = (VCC - VBE) / (RB + (beta + 1) * RE), IC = beta * IB, IE = (beta + 1) * IB, VCE = VCC - IC * RC - IE * RE;
+      if (VCE < 1 - 1e-9 || IC * RC + IE * RE > VCC) fail(ex, 'Q-point not active');
+      if (RL === RC) fail(ex, 'R_L = R_C');
+      if (lv === 4) { const q = m.ch.q; if (!near(q.ic * 1e-3, IC, 1e-6) || !near(q.vce, VCE, 1e-6)) fail(ex, 'graph Q does not match the circuit'); if (m.ch.IBs.indexOf(IB * 1e6) < 0 && !m.ch.IBs.some(x => near(x, IB * 1e6))) fail(ex, 'Q not on a curve'); if (ex.extra.includes('<line class="curve"')) fail(ex, 'level 4 graph shows the load line'); }
+      if (RE && !c.CE) fail(ex, 'R_E without C_E');
+      const Rp = par(RC, RL), Av = -beta * Rp / hie, Av0 = -beta * RC / hie, vi = vimOf(ex);
+      if (vi) { const lim = Math.min(VCE - VSAT, IC * Rp); if (Math.abs(Av) * vi > lim) fail(ex, 'output swing clips'); if (P.some(p => p.kind === 'norl') && Math.abs(Av0) * vi > Math.min(VCE - VSAT, IC * RC)) fail(ex, 'swing without R_L clips'); }
+      const W = { ib: [IB], icvce: [IC, VCE], ic: [IC, IE], vce: [VCE], load: [VCC, VCC / (RC + RE)], av: [Av], norl: [Av0, Math.abs(Av0) * vi], vmax: [Math.abs(Av) * vi, -Math.abs(Av) * vi],
+        phase: ['inv'], rcav: [RC], vcc: [VCC], ibrb: [IB, RB], ibie: [IB, IE], rcre: [RC], rbre: [RB], gq: [IB, IC, VCE], gbeta: [beta], grcrb: [RC, RB] };
+      P.forEach(p => { if (W[p.kind]) check(ex, p, W[p.kind]); });
+      const st = P.find(p => p.kind === 'state');
+      if (st) { const md = Object.assign({ VB: VCC, RB, RC, beta }, st.mod), s2 = solve(VCC, md.VB, md.RB, md.RC, md.beta); check(ex, st, [s2.state, s2.VCE]); if ((s2.state === 'sat' && s2.ratio < 1.2) || (s2.state === 'act' && s2.ratio > 0.9)) fail(ex, 'state too close to the edge'); }
+      if (lv === 3 && (c.vcc != null || !c.hide.includes('R_C'))) fail(ex, 'design: V_CC / R_C should be unknown');
+      const kindsNeeded = { 1: ['ib', 'icvce', 'equiv', 'av'], 2: ['av', 'vmax', 'phase', 'norl', 'sketch'], 4: ['gq', 'gbeta', 'grcrb', 'sketch', 'av'] }[lv];
+      if (kindsNeeded && kindsNeeded.join() !== P.map(p => p.kind).join()) fail(ex, 'parts ' + P.map(p => p.kind).join());
+    } else {
+      const led = c.load !== 'R', VLED = led ? giv(ex, 'V_LED') : 0, VCC = m.VCC, R = c.R, Isat = (VCC - VLED - VSAT) / R, beta = giv(ex, 'β');
+      if (led !== (VLED > 0)) fail(ex, 'V_LED given iff there is an LED');
+      if (giv(ex, 'V_CE(sat)') !== VSAT) fail(ex, 'V_CE(sat) not given');
+      P.forEach(p => { if (p.kind === 'isat') check(ex, p, [Isat]); if (p.kind === 'vr') check(ex, p, [Isat * R]); if (p.kind === 'vo') check(ex, p, [VSAT]); if (p.kind === 'vo2') check(ex, p, [VSAT, VCC]); if (p.kind === 'p0') check(ex, p, [VCC]); });
+      if (lv === 2 || lv === 3) {
+        const Vi = m.Vi, b = m.beta, o = swS(VCC, VLED, R, Vi, m.RB, b);
+        if (lv === 2 && (!near(beta, b) || !ex.text.replace(/[⁦⁩]/g, '').includes(`V_i = ${Vi} V`))) fail(ex, 'β / V_i not given');
+        if ((o.state === 'sat' && o.ratio < 1.2) || (o.state === 'act' && o.ratio > 0.9)) fail(ex, 'state too close to the edge');
+        P.forEach(p => {
+          if (p.kind === 'ib') check(ex, p, [o.IB]); if (p.kind === 'state') check(ex, p, [o.state, o.Vo]); if (p.kind === 'ibmin') check(ex, p, [Isat / b]);
+          // תכנון: מעט מעבר לערך הגבול המצב מתחלף
+          if (p.kind === 'rbmax') { const v = p.answers[0].value; check(ex, p, [(Vi - VBE) * b / Isat]); if (swS(VCC, VLED, R, Vi, v * 0.99, b).state !== 'sat' || swS(VCC, VLED, R, Vi, v * 1.01, b).state !== 'act') fail(ex, 'R_B(max) is not the boundary'); if (beta == null) fail(ex, 'β not given'); }
+          if (p.kind === 'vimin') { const v = p.answers[0].value; if (swS(VCC, VLED, R, v * 1.01, m.RB, b).state !== 'sat' || swS(VCC, VLED, R, v * 0.99, m.RB, b).state !== 'act') fail(ex, 'V_i(min) is not the boundary'); if (ex.givens.some(g => g.sym === 'V_i')) fail(ex, 'V_i given in vimin'); }
+          if (p.kind === 'betamin') { const v = p.answers[0].value; if (swS(VCC, VLED, R, Vi, m.RB, v * 1.01).state !== 'sat' || swS(VCC, VLED, R, Vi, m.RB, v * 0.99).state !== 'act') fail(ex, 'β(min) is not the boundary'); if (beta != null) fail(ex, 'β given in betamin'); }
+        });
+      }
+      if (lv === 4) {
+        if (!ex.extra || !ex.extra.includes('<svg')) fail(ex, 'no input waveform');
+        P.filter(p => p.kind === 'pact' || p.kind === 'psat').forEach(p => { const o = swS(VCC, VLED, R, p.vi, c.RB, beta); check(ex, p, [o.state, o.Vo]); if ((o.state === 'sat' && o.ratio < 1.2) || (o.state === 'act' && (o.ratio > 0.9 || o.ratio < 0.15))) fail(ex, 'pulse level too close to an edge'); });
+        if (!P.some(p => p.kind === 'pact' || p.kind === 'psat')) fail(ex, 'pulse without a high level');
+      }
+      if (lv === 5) {
+        const b = c.base, Rs = E.valueAt(m.ch, m.at[0]) * 1e3, top = b.pos === 'top' ? Rs : b.R4, bot = b.pos === 'top' ? b.R4 : Rs;
+        // צומת A בפתרון ישיר (בלי תבנן): (V_CC − V_A)/R_top = V_A/R_bot + (V_A − V_BE)/R_B
+        const VA = (VCC / top + VBE / c.RB) / (1 / top + 1 / bot + 1 / c.RB), IB = (VA - VBE) / c.RB;
+        P.forEach(p => { if (p.kind === 'rs') check(ex, p, [Rs], 1e-3); if (p.kind === 'thev') check(ex, p, [VCC * bot / (top + bot), par(top, bot)]); if (p.kind === 'ib') check(ex, p, [IB]); });
+        const o = swS(VCC, VLED, R, VA, c.RB, beta);   // אותו I_B דרך R_B מ-V_A
+        const st = P.find(p => p.kind === 'state'); check(ex, st, [o.state, o.Vo]);
+        if (!ex.extra.includes('<svg')) fail(ex, 'no sensor chart');
+      }
+    }
+  }
+  let ampShare = 0; for (let s = 1; s <= 2000; s++) if (E.makeExercise({ mode: 'adv', level: 1 + s % 5, seed: s }).track === 'amp') ampShare++;
+  if (Math.abs(ampShare / 2000 - 0.8) > 0.04) fail({ seed: 0, level: 0, kind: 'mix' }, 'amp:switch mix ' + ampShare / 2000);
+  log(`advanced: ${advN} exercises, ${fails - fails0} failures; amp share with both tracks ${(ampShare / 2000).toFixed(3)}`);
+  log('kinds: ' + Object.entries(kindsA).map(([k, v]) => k + '=' + v).join(' '));
+
+  // ---------------- גיליון לדוגמה ----------------
+  const esc = Core.esc, sym = s => Core.symHtml(esc(s)), U = E.Units;
+  const ansText = a => (a.type === 'choice' ? a.options.find(o => o.value === a.value).label : '⁦' + `${a.sym} = ${U.formatAnswer(a.value, a.unit, a.prefix)}` + '⁩');
+  const sheet = (lv, seeds, o) => seeds.map(s => {
+    const ex = E.makeExercise(Object.assign({ mode: 'basic', level: lv, seed: s }, o || {})), r = E.Draw.renderEx(ex);
+    const giv = E.givensList(ex).map(g => '⁦' + `${g.sym} = ${g.text}` + '⁩').join(', ');
+    const parts = ex.parts.length === 1 ? `<p><b>תשובה:</b> ${sym(ex.parts[0].answers.map(ansText).join(', '))}</p>`
+      : '<ol>' + ex.parts.map(p => `<li>${sym(p.text)} <b>${p.selfcheck ? '(בדיקה עצמית)' : sym(p.answers.map(ansText).join(', '))}</b>${p.selfcheck ? `<div class="self">${p.selfcheck.html}</div>` : ''}</li>`).join('') + '</ol>';
+    const track = ex.mode === 'basic' ? '' : ex.track === 'amp' ? 'מגבר, ' : 'מתג, ';
+    return `<figure class="rev"><figcaption><b>${track}רמה ${lv}</b> (${ex.kind}, #${s})</figcaption><p>${sym(ex.text)}</p>${r.svg}<p class="giv">נתונים: ${sym(giv)}</p>${parts}</figure>`;
+  }).join('');
+  const firstOf = (lv, v, o) => { for (let s = 1; ; s++) if (E.makeExercise(Object.assign({ mode: 'basic', level: lv, seed: s }, o || {})).variant.startsWith(v)) return s; };
+  const AMP = { mode: 'adv', amp: true, sw: false }, SW = { mode: 'adv', amp: false, sw: true };
+  document.getElementById('review').innerHTML = sheet(1, [1, 3]) + sheet(2, [5, 9]) + sheet(3, [firstOf(3, 'revRC'), firstOf(3, 'revVCC'), firstOf(3, 'graph')]);
+  document.getElementById('reviewAmp').innerHTML = [1, 2, 3, 4].map(lv => sheet(lv, [1], AMP)).join('') + sheet(5, [firstOf(5, 'reQ', AMP), firstOf(5, 'reDesign', AMP)], AMP);
+  document.getElementById('reviewSw').innerHTML = sheet(1, [1], SW) + sheet(2, [firstOf(2, 'act', SW)], SW) + sheet(3, [firstOf(3, 'rbmax', SW), firstOf(3, 'betamin', SW)], SW) + sheet(4, [firstOf(4, 'pulseactsat', SW)], SW) + sheet(5, [firstOf(5, 'sensLDR', SW), firstOf(5, 'sensRTC', SW)], SW);
+  document.getElementById('summary').innerHTML = fails ? `<p class="fail">${fails} כשלונות</p>` : '<p class="pass">עבר</p>';
+  document.getElementById('log').textContent = lines.join('\n');
+})().catch(e => { document.getElementById('log').textContent = 'ERROR: ' + e.stack; });
+</script>
+</body>
+</html>

@@ -152,7 +152,7 @@
 
   // ---------- גרסה וקישורים בכל האתר ----------
   {
-    const pages = { landing: '../index.html', ohm: '../ohm/index.html', mesh: 'index.html', ac: '../ac/index.html', opamp: '../opamp/index.html', comparator: '../comparator/index.html', filters: '../filters/index.html' }, vers = {};
+    const pages = { landing: '../index.html', ohm: '../ohm/index.html', mesh: 'index.html', ac: '../ac/index.html', opamp: '../opamp/index.html', comparator: '../comparator/index.html', transistor: '../transistor/index.html', filters: '../filters/index.html' }, vers = {};
     for (const [name, path] of Object.entries(pages)) {
       const url = new URL(path, location.href), src = await (await fetch(url, { cache: 'no-store' })).text();
       vers[name] = (/const VERSION = '(v\d+\.\d+)'/.exec(src) || [])[1];
@@ -167,7 +167,7 @@
     ok(new Set(Object.values(vers)).size === 1 && vers.mesh === E.VERSION, 'site versions match');
     const land = await (await fetch('../index.html', { cache: 'no-store' })).text();
     const order = [...land.matchAll(/class="card" href="([^"]+)"/g)].map(m => m[1]).join(' ');
-    ok(order === 'ohm/index.html mesh/index.html ac/index.html opamp/index.html comparator/index.html filters/index.html', 'landing card order: ' + order);
+    ok(order === 'ohm/index.html mesh/index.html ac/index.html opamp/index.html comparator/index.html transistor/index.html filters/index.html', 'landing card order: ' + order);
   }
 
   // ---------- ריצה המונית ----------
