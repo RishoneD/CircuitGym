@@ -118,7 +118,7 @@
     }
     for (const s of r.srcLines) ok(s.length * 7.8 <= r.width - 32, `source label too wide "${s}" ${tag}`);
     const vms = (r.svg.match(/class="ckt-meter"/g) || []).length;
-    const expect = 1 + (ex.disp.current && ex.disp.current.meter ? 1 : 0) + ex.disp.comps.filter(c => c.extras.some(e => e.meter)).length;
+    const expect = (ex.disp.gen ? 0 : 1) + (ex.disp.current && ex.disp.current.meter ? 1 : 0) + ex.disp.comps.filter(c => c.extras.some(e => e.meter)).length;
     ok(vms === expect, `meter count ${vms} != ${expect} ${tag}`);
     stats.maxW = Math.max(stats.maxW, r.width); stats.maxH = Math.max(stats.maxH, r.height);
   }
@@ -154,12 +154,63 @@
     ok(vers.landing === vers.ohm && vers.ohm === vers.ac && vers.ac === E.VERSION, 'site versions match');
   }
 
+  // ---------- קריאת מסך המשקף מתוך ה-SVG שמוצג לתלמיד (בלי להסתכל על ex.screen) ----------
+  // מחזיר לכל ערוץ: שיא בחלוקות, זמן מחזור בחלוקות, ומיקום החצייה הראשונה כלפי מעלה
+  function readScreen(svg, tag) {
+    const sc = svg.slice(svg.indexOf('class="scope"'));
+    const fr = /<rect class="fr" x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)"/.exec(sc);
+    const [x0, y0, w, h] = fr.slice(1).map(Number), DV = w / 10, ym = y0 + h / 2;
+    ok(Math.abs(h / DV - 8) < 1e-9, 'screen is 10 x 8 divisions ' + tag);
+    const ax = /<line class="ax" x1="[\d.]+" y1="([\d.]+)"/.exec(sc);
+    ok(Math.abs(Number(ax[1]) - ym) < 1e-9, 't axis in the middle ' + tag);
+    const out = [];
+    for (const m of sc.matchAll(/<path class="(w1|w2)" d="([^"]+)"/g)) {
+      const pts = m[2].slice(1).split('L').map(p => p.split(',').map(Number));
+      ok(pts.every(p => p[1] >= y0 - 0.01 && p[1] <= y0 + h + 0.01 && p[0] >= x0 - 0.01 && p[0] <= x0 + w + 0.01), 'trace inside the screen ' + tag);
+      const amp = Math.max(...pts.map(p => Math.abs(ym - p[1]))) / DV, ups = [];
+      for (let i = 0; i + 1 < pts.length; i++) {
+        const [xa, ya] = pts[i], [xb, yb] = pts[i + 1];
+        if (ya > ym && yb <= ym) ups.push(xa + (ya - ym) / (ya - yb) * (xb - xa));
+      }
+      const per = ups.length > 1 ? (ups[ups.length - 1] - ups[0]) / (ups.length - 1) / DV : NaN;
+      out.push({ amp, per, up: ups[0], DV });
+    }
+    return out;
+  }
+  const snap = (x, step) => Math.round(x / step) * step;
+  const k0 = (v, n) => v[n] !== undefined;
+
   // ---------- מאמת עצמאי לסעיפים: כל הגדלים נגזרים רק מהנתונים המוצגים, לפי כללי הפיזיקה ----------
   function deriveAll(ex) {
     const v = {}, type = ex.ctype, has = t => E.COMPS[type].includes(t), PI2 = 2 * Math.PI;
     for (const x of E.givensList(ex)) {
       if (x.q === 'ut') { const p = parseUt(x.text); v.U = p.U; v.w = p.w; }
       else v[x.q] = parseShown(x.text);
+    }
+    if (ex.screen) {   // קריאות מהמסך: שיא בחצאי חלוקות, מחזור במספר שלם של חלוקות
+      const tag = `(seed ${ex.seed}, ${ex.kind})`, tr = readScreen(E.Draw.render(ex).svg, tag);
+      ok(tr.length === (ex.kind === 'scB' ? 2 : 1), 'trace count ' + tag);
+      const n = snap(tr[0].per, 1);
+      ok(Math.abs(tr[0].per - n) < 0.02 && n >= 2 && n <= 5, `period on the grid: ${tr[0].per.toFixed(3)} div ` + tag);
+      v.T = n * v.tdiv;
+      tr.forEach(t => ok(t.amp >= 1 - 0.02 && t.amp <= 3.6, `amplitude ${t.amp.toFixed(3)} div ` + tag));
+      if (k0(v, 'vdiv')) {
+        const a = tr.map(t => snap(t.amp, 0.5));
+        tr.forEach((t, i) => ok(Math.abs(t.amp - a[i]) < 0.02, `amplitude on half divisions: ${t.amp.toFixed(3)} ` + tag));
+        v.Um = a[0] * v.vdiv;
+        if (tr[1]) {
+          v.URm = a[1] * v.vdiv;
+          // CH2 (הזרם) מקדים במעגל קיבולי ומפגר במעגל השראותי, בזווית φ
+          const Tpx = tr[0].per * tr[0].DV, delta = (((tr[1].up - tr[0].up) % Tpx) + Tpx) % Tpx;
+          const lead = delta > Tpx / 2, ang = (lead ? Tpx - delta : delta) / Tpx * 360;
+          ok(lead === (ex.state.X < 0), 'CH2 lead/lag matches the circuit ' + tag);
+          ok(Math.abs(ang - Math.abs(ex.state.phi)) < 1.5, `CH2 shift ${ang.toFixed(1)} vs phi ${ex.state.phi.toFixed(1)} ` + tag);
+        }
+      }
+      if (k0(v, 'Upp')) {   // המשקף על הרכיב הימני, שמחובר לאדמה
+        const t = ex.disp.comps[ex.disp.scope.probes[0].at].t;
+        v['U' + t] = v.Upp / (2 * Math.SQRT2);
+      }
     }
     const k = n => v[n] !== undefined;
     let changed = true;
@@ -168,6 +219,9 @@
     const Xnet = () => (has('L') ? v.XL : 0) - (has('C') ? v.XC : 0);
     for (let it = 0; it < 40 && changed; it++) {
       changed = false;
+      if (k('Um')) set('U', v.Um / Math.SQRT2);
+      if (k('URm')) set('UR', v.URm / Math.SQRT2);
+      if (k('T')) set('f', 1 / v.T);
       if (k('f')) set('w', PI2 * v.f);
       if (k('w')) { set('f', v.w / PI2); set('T', PI2 / v.w); }
       if (has('L')) { if (k('L') && k('w')) set('XL', v.w * v.L); if (k('XL') && k('w')) set('L', v.XL / v.w); if (k('UL') && k('I')) set('XL', v.UL / v.I); }
@@ -194,11 +248,23 @@
   const fmtStats = {}, partStats = {}, dstats = { maxW: 0, maxH: 0 };
   let total = 0, meters = 0, ut = 0, vLetter = 0;
   const t0 = performance.now();
-  for (const types of typeSets) for (let level = 1; level <= 5; level++) for (let i = 0; i < N; i++) {
+  // ריצות: בלי משקף (כמו קודם), עם משקף כמו בממשק (מודדים את השיעור), ועם משקף בכל תרגיל
+  const RUNS = [
+    { name: 'plain', opts: {}, levels: [1, 2, 3, 4, 5], n: N },
+    { name: 'scope', opts: { scope: true }, levels: [4, 5], n: 4 * N },
+    { name: 'forced', opts: { scopeShare: 1 }, levels: [4, 5], n: 3 * N },
+  ];
+  const shareStats = {};
+  for (const run of RUNS) for (const types of typeSets) for (const level of run.levels) for (let i = 0; i < run.n; i++) {
     const seed = (total * 2654435761 + 11) >>> 0;
     let ex;
-    try { ex = E.makeExercise({ level, types, seed }); } catch (e) { ok(false, `makeExercise threw ${e.message} (seed ${seed})`); total++; continue; }
+    try { ex = E.makeExercise(Object.assign({ level, types, seed }, run.opts)); } catch (e) { ok(false, `makeExercise threw ${e.message} (seed ${seed})`); total++; continue; }
     total++;
+    if (run.name !== 'plain') {
+      const key = `${run.name} L${level} ${types.join('+')}`, st = shareStats[key] || (shareStats[key] = { n: 0, sc: 0 });
+      st.n++; if (ex.screen) st.sc++;
+    }
+    if (run.name === 'plain') ok(!ex.screen, 'no scope without the option (seed ' + seed + ')');
     const tag = `(seed ${seed}, L${level} ${ex.format}/${ex.kind}, ${ex.ctype})`;
     const fs = fmtStats[`L${level} ${ex.kind}`] || (fmtStats[`L${level} ${ex.kind}`] = { n: 0, tries: 0, maxTries: 0 });
     fs.n++; fs.tries += ex.tries; fs.maxTries = Math.max(fs.maxTries, ex.tries);
@@ -213,9 +279,18 @@
     partStats[`L${level}: ${qs}`] = (partStats[`L${level}: ${qs}`] || 0) + 1;
     if (level === 1) ok(n === 1 && ex.format === 'single' && E.KINDS.find(x => x.kind === ex.kind).lv === 1, 'L1 single question ' + tag);
     else if (level === 2) ok(n >= 2 && n <= 3 && ex.kind === 'fwd', 'L2: 2-3 parts ' + tag);
+    else if (ex.screen && level === 4) ok((ex.kind === 'scA' && n >= 4 && n <= 5) || (ex.kind === 'scB' && n === 4), 'L4 scope: A 4-5 parts, B 4 parts ' + tag);
+    else if (ex.screen) ok(((ex.kind === 'scB' && n === 5) || (ex.kind === 'scC' && n === 4)) && ex.ctype !== 'RLC', 'L5 scope: B 5 parts, C 4 parts, no RLC ' + tag);
     else if (level <= 4) ok(n >= 3 && n <= 4 && ex.kind === 'fwd', 'L3-4: 3-4 parts ' + tag);
     else ok(n >= 3 && n <= 4 && ['A', 'B', 'C'].includes(ex.kind) && (ex.kind !== 'A' || ex.ctype !== 'RLC'), 'L5: reverse 3-4 parts ' + tag);
-    if (level === 4) ok(ex.src !== 'U', 'L4 source as u(t) ' + tag);
+    if (level === 4 && !ex.screen) ok(ex.src !== 'U', 'L4 source as u(t) ' + tag);
+    if (ex.screen) {   // הרכיב הנמדד: הימני (מחובר לאדמה); בשני ערוצים זה הנגד
+      const pr = ex.disp.scope.probes, last = ex.disp.comps.length - 1;
+      ok(pr.every(p => p.at === 'src' || p.at === last), 'probe on the grounded component ' + tag);
+      if (ex.kind === 'scB') ok(ex.disp.comps[last].t === 'R' && pr.length === 2, 'CH2 on R ' + tag);
+      if (ex.kind === 'scC') ok(ex.disp.comps[last].t !== 'R' && ex.disp.comps[0].extras.some(e => e.meter), 'C: scope on L/C, voltmeter on R ' + tag);
+      ok(ex.disp.comps.every(c => typeof c.value !== 'number' || c.t === 'R' || ex.kind === 'scA'), 'only R value shown (B, C) ' + tag);
+    }
     physics(ex);
     const v = deriveAll(ex);
     ex.parts.forEach((p, pi) => {
@@ -244,6 +319,26 @@
   log('\nformat           n   avgTries  maxTries');
   Object.keys(fmtStats).sort().forEach(k => { const s = fmtStats[k]; log(`${k.padEnd(14)} ${String(s.n).padStart(5)}  ${(s.tries / s.n).toFixed(1).padStart(8)}  ${String(s.maxTries).padStart(8)}`); });
   log('\nparts (by quantity): ' + JSON.stringify(partStats));
+  log('\nscope share (exercises with a scope screen):');
+  Object.keys(shareStats).forEach(k => { const st = shareStats[k]; log(`  ${k.padEnd(26)} ${(100 * st.sc / st.n).toFixed(1)}%  (n=${st.n})`); });
+  { // שיעור המשקף בממשק: בערך 30% ברמות 4–5 (מותר 25–35%), חוץ מ-RLC לבד ברמה 5
+    const agg = {};
+    Object.keys(shareStats).filter(k => k.startsWith('scope') && !/L5 RLC$/.test(k)).forEach(k => { const lv = k.split(' ')[1]; agg[lv] = agg[lv] || { n: 0, sc: 0 }; agg[lv].n += shareStats[k].n; agg[lv].sc += shareStats[k].sc; });
+    Object.keys(agg).forEach(lv => { const r = agg[lv].sc / agg[lv].n; log(`  total ${lv}: ${(100 * r).toFixed(1)}%`); ok(r >= 0.25 && r <= 0.35, `scope share ${lv} ${(100 * r).toFixed(1)}%`); });
+    Object.keys(shareStats).filter(k => k.startsWith('forced')).forEach(k => ok(/L5 RLC$/.test(k) ? shareStats[k].sc === 0 : shareStats[k].sc === shareStats[k].n, 'forced scope ' + k));
+  }
+  { // מגוון: תרגילי משקף שונים (לפי התשובות) מתוך 3000 בכל צירוף
+    log('\nscope variety (distinct answer sets of 3000):');
+    for (const [level, kind] of [[4, 'scA'], [4, 'scB'], [5, 'scB'], [5, 'scC']]) {
+      const seen = new Set(); let n = 0, sd = 1;
+      while (n < 3000 && sd < 200000) {
+        const ex = E.makeExercise({ level, types: ['RL', 'RC', 'RLC'], seed: 5e6 + (sd++), scopeShare: 1 });
+        if (ex.kind !== kind) continue;
+        n++; seen.add(ex.ctype + JSON.stringify(ex.parts.map(p => p.answers.map(a => +a.value.toPrecision(6)))));
+      }
+      log(`  L${level} ${kind}: ${seen.size} / ${n}`);
+    }
+  }
   if (failures.length) log('\nFAILURES (first 40):\n' + failures.join('\n'));
   document.getElementById('log').textContent = lines.join('\n');
   document.getElementById('summary').innerHTML =
@@ -252,8 +347,8 @@
 
   // ---------- גלריה ----------
   const gal = [];
-  ['RL', 'RC', 'RLC'].forEach((t, ti) => [1, 2, 3, 4, 5, 5].forEach((lv, i) => {
-    const ex = E.makeExercise({ level: lv, types: [t], seed: 700 + i * 13 + ti });
+  ['RL', 'RC', 'RLC'].forEach((t, ti) => [1, 2, 3, 4, 5, 5, 4, 4, 5, 5].forEach((lv, i) => {
+    const ex = E.makeExercise({ level: lv, types: [t], seed: 700 + i * 13 + ti, scopeShare: i >= 6 ? 1 : 0 });
     gal.push(`<figure><figcaption>${t} L${lv} ${ex.kind} seed ${ex.seed} | ${ex.parts.map(p => p.text || ex.text).join(' / ')}</figcaption>${E.Draw.render(ex).svg}</figure>`);
   }));
   document.getElementById('gallery').innerHTML = gal.join('');

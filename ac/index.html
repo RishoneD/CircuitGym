@@ -40,6 +40,10 @@
       <label class="opt"><input type="checkbox" id="tRC" checked> <bdi dir="ltr">RC</bdi></label>
       <label class="opt"><input type="checkbox" id="tRLC" checked> <bdi dir="ltr">RLC</bdi></label>
     </fieldset>
+    <fieldset>
+      <legend>מכשירי מדידה</legend>
+      <label class="opt"><input type="checkbox" id="scope" checked> שילוב משקף תנודות ומחולל אותות בחלק מהתרגילים (ברמות 4–5)</label>
+    </fieldset>
     <label class="row">רמת קושי התחלתית:
       <select id="level">
         <option value="1">1</option>
@@ -616,26 +620,161 @@
     if (o.src === 'U' && rng.next() < 0.5) { const pn = inewPart(rng, o, s); if (pn) parts.push(pn); }
     return { s, d, o, parts, text: INTRO_AC, kind: 'C', k: (parts[3] || {}).k };
   }
-  function makeMulti(rng, seed, level, type) {
+  // ---------------- משקף תנודות (רמות 4–5, כשהאפשרות מסומנת; לפי שאלות בגרות לדוגמה) ----------------
+  // כל קריאה מהמסך נופלת על קווי הרשת: Time/div ו-Volt/div מסדרת 1-2-5, זמן מחזור של 2, 4 או 5 חלוקות,
+  // ושיא בחצאי חלוקות. בסגנון ג אין Volt/div: נותנים U_pp, מעוגל ל-4 ספרות, והערך המעוגל הוא הנתון שממנו מחשבים.
+  // א (רמה 4): ערוץ אחד על המקור (לפעמים מחולל אותות): U_max, T → U_eff, f → היגב → Z (→ I)
+  // ב (רמה 4): CH1 על המקור, CH2 על הנגד: U_max, T, U_Rmax → U_eff, f → I → Z
+  // ב (רמה 5, RL/RC): U_max, T, U_Rmax → I → Z → X → L או C
+  // ג (רמה 5, RL/RC): מד מתח על הנגד, ערוץ אחד על הסליל או הקבל: I → f → L או C → U
+  const SCOPE_SHARE = 0.3;
+  const SCOPE = {
+    TDIV: [1e-5, 2e-5, 5e-5, 1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3, 1e-2], NT: [2, 4, 5],
+    VDIV: [0.5, 1, 2, 5, 10, 20], A: [1.5, 2, 2.5, 3, 3.5],
+  };
+  const INTRO_SC = 'באיור נתון מעגל טורי המחובר למקור מתח חילופין, ואליו מחובר משקף תנודות. מתחת למעגל מוצג מסך משקף התנודות.';
+  const DEG = Math.PI / 180;
+  const TO_COMP = { L: 'לסליל', C: 'לקבל' };
+  function scopeTime(rng) { const tdiv = rng.pick(SCOPE.TDIV), n = rng.pick(SCOPE.NT); return { tdiv, n, T: n * tdiv }; }
+  function scopeOpts(rng) { const o = randOpts(rng, false); o.fmode = 'f'; return o; }
+  const readV = (ctx, sym, a, vdiv, val, what) => S(ctx, `קוראים מהמסך: ${what} הוא ${numStr(a)} חלוקות`, sym, `${numStr(a)}·Volt/div`, `${numStr(a)}·${fmt(vdiv, 'V')}`, val, 'V');
+  const readT = (ctx, tm) => S(ctx, `קוראים מהמסך: מחזור שלם הוא ${tm.n} חלוקות`, 'T', `${tm.n}·Time/div`, `${tm.n}·${fmt(tm.tdiv, 's')}`, tm.T, 's');
+  const effStep = (ctx, sym, msym, m) => S(ctx, 'ערך יעיל = ערך השיא חלקי √2', sym, `${msym} / √2`, `${fmt(m, 'V')} / √2`, m / Math.SQRT2, 'V');
+  const fStep = (ctx, T) => S(ctx, 'התדירות היא ההופכי של זמן המחזור', 'f', '1 / T', `1 / ${fmt(T, 's')}`, 1 / T, 'Hz');
+  function lcPartF(o, s, t, X, T) {   // L או C מתוך היגב ידוע, כשהתדירות עוד לא חושבה בסעיף קודם
+    const p = lcFromXPart(o, s, [t], [X]), c = newCtx(o, s);
+    fStep(c, T);
+    p.steps = c.steps.concat(p.steps);
+    return p;
+  }
+  function scopeA(rng, type) {
+    const o = scopeOpts(rng), u = o.u, tm = scopeTime(rng), vdiv = rng.pick(SCOPE.VDIV), a = rng.pick(SCOPE.A);
+    const s = { type, order: rng.shuffle(COMPS[type]), w: 2 * Math.PI / tm.T, R: rng.pick(VALUES.R) };
+    if (COMPS[type].includes('L')) s.L = rng.pick(VALUES.L);
+    if (COMPS[type].includes('C')) s.C = rng.pick(VALUES.C);
+    s.Um = a * vdiv; s.U = s.Um / Math.SQRT2;
+    solveState(s);
+    if (!valid(s)) return null;
+    const d = dispFor(s);
+    d.gen = rng.next() < 0.5;
+    d.scope = { probes: [{ ch: 'CH_1', at: 'src' }] };
+    const um = `${u}_max`, c1 = newCtx(o, s), c2 = newCtx(o, s);
+    readV(c1, um, a, vdiv, s.Um, 'השיא'); readT(c1, tm);
+    effStep(c2, `${u}_eff`, um, s.Um); fStep(c2, tm.T);
+    const parts = [part(`היעזרו במסך המשקף, ורשמו את ערך השיא של מתח המקור ${um} ואת זמן המחזור T.`, [ANS(um, s.Um, 'V', 'Um'), ANS('T', tm.T, 's', 'T')], c1.steps),
+      part(`חשבו את הערך היעיל של מתח המקור ${u}_eff ואת התדירות f.`, [ANS(`${u}_eff`, s.U, 'V', 'U'), ANS('f', s.f, 'Hz', 'f')], c2.steps),
+      xPart(o, s, type), zPart(o, s)];
+    if (rng.next() < 0.5) parts.push(iPart(o, s));
+    const src = d.gen ? 'למחולל אותות' : 'למקור מתח חילופין';
+    return { s, d, o, parts, kind: 'scA',
+      text: `באיור נתון מעגל טורי המחובר ${src}. משקף תנודות מחובר למקור, ומתחת למעגל מוצג המסך שלו.`,
+      screen: { T: tm.T, tdiv: tm.tdiv, vdiv, showV: true, traces: [{ amp: s.Um, ph: 0 }] } };
+  }
+  function scopeB(rng, type, level) {
+    const o = scopeOpts(rng), u = o.u, tm = scopeTime(rng), vdiv = rng.pick(SCOPE.VDIV);
+    const a1 = rng.pick(SCOPE.A.filter(x => x >= 2)), a2 = rng.pick(SCOPE.A.concat([1]).filter(x => x < a1));
+    const s = { type, order: rng.shuffle(COMPS[type].filter(t => t !== 'R')).concat(['R']), w: 2 * Math.PI / tm.T, R: rng.pick(VALUES.R) };
+    s.Um = a1 * vdiv; s.U = s.Um / Math.SQRT2;
+    const URm = a2 * vdiv, I = URm / Math.SQRT2 / s.R, Z = s.R * a1 / a2, X = Math.sqrt(Z * Z - s.R * s.R);
+    realizeX(rng, s, X); solveState(s);
+    if (!valid(s)) return null;
+    const d = dispFor(s);
+    d.comps.forEach(c => { if (c.t !== 'R') c.value = undefined; });
+    d.current = { value: null, meter: false };
+    d.scope = { probes: [{ ch: 'CH_1', at: 'src' }, { ch: 'CH_2', at: d.comps.length - 1 }] };
+    const um = `${u}_max`, urm = `${u}_Rmax`, c1 = newCtx(o, s);
+    readV(c1, um, a1, vdiv, s.Um, 'השיא של CH1'); readT(c1, tm); readV(c1, urm, a2, vdiv, URm, 'השיא של CH2');
+    const p1 = part(`היעזרו במסך המשקף, ורשמו את ערך השיא של מתח המקור ${um}, את זמן המחזור T ואת ערך השיא של המתח על הנגד ${urm}.`,
+      [ANS(um, s.Um, 'V', 'Um'), ANS('T', tm.T, 's', 'T'), ANS(urm, URm, 'V', 'URm')], c1.steps);
+    const ci = newCtx(o, s);
+    effStep(ci, `${u}_R`, urm, URm);
+    S(ci, 'חוק אוהם על הנגד', 'I', `${u}_R / R`, `${fmt(URm / Math.SQRT2, 'V')} / ${fmt(s.R, 'Ω')}`, I, 'A');
+    const pI = part('חשבו את הערך היעיל של הזרם I במעגל.', [ANS('I', I, 'A', 'I')], ci.steps);
+    const cz = newCtx(o, s);
+    if (level === 5) effStep(cz, `${u}_eff`, um, s.Um);
+    S(cz, 'חוק אוהם על כל המעגל', 'Z', `${u}_eff / I`, `${fmt(s.U, 'V')} / ${fmt(I, 'A')}`, Z, 'Ω');
+    const pZ = part('חשבו את עכבת המעגל Z.', [ANS('Z', Z, 'Ω', 'Z')], cz.steps);
+    const text = INTRO_SC + ' ערוץ CH1 מחובר למקור וערוץ CH2 מחובר לנגד, ומצב הבוררים זהה בשני הערוצים.';
+    const screen = { T: tm.T, tdiv: tm.tdiv, vdiv, showV: true, traces: [{ amp: s.Um, ph: 0 }, { amp: URm, ph: -s.phi * DEG }] };
+    if (level === 4) {
+      const c2 = newCtx(o, s);
+      effStep(c2, `${u}_eff`, um, s.Um); fStep(c2, tm.T);
+      const p2 = part(`חשבו את הערך היעיל של מתח המקור ${u}_eff ואת התדירות f.`, [ANS(`${u}_eff`, s.U, 'V', 'U'), ANS('f', s.f, 'Hz', 'f')], c2.steps);
+      return { s, d, o, parts: [p1, p2, pI, pZ], kind: 'scB', text, screen };
+    }
+    const t = type === 'RL' ? 'L' : 'C', cx = newCtx(o, s);
+    S(cx, 'מתוך Z² = R² + X²', 'X_' + t, '√(Z² − R²)', `√((${fmt(Z, 'Ω')})² − (${fmt(s.R, 'Ω')})²)`, X, 'Ω');
+    const pX = part(t === 'L' ? 'חשבו את היגב הסליל X_L.' : 'חשבו את היגב הקבל X_C.', [ANS('X_' + t, X, 'Ω', 'X' + t)], cx.steps);
+    return { s, d, o, parts: [p1, pI, pZ, pX, lcPartF(o, s, t, X, tm.T)], kind: 'scB', text, screen };
+  }
+  function scopeC(rng, type) {
+    const o = scopeOpts(rng), u = o.u, tm = scopeTime(rng), t = type === 'RL' ? 'L' : 'C';
+    const s = { type, order: ['R', t], w: 2 * Math.PI / tm.T, R: rng.pick(VALUES.R) };
+    const UR = rng.pick(VALUES.VX), Upp = Number((2 * Math.SQRT2 * rng.pick(VALUES.VX)).toPrecision(4)), UX = Upp / (2 * Math.SQRT2);
+    const I = UR / s.R, X = UX / I;
+    if (t === 'L') s.L = X / s.w; else s.C = 1 / (s.w * X);
+    s.U = Math.hypot(UR, UX);
+    solveState(s);
+    if (!valid(s)) return null;
+    const vdivs = SCOPE.VDIV.filter(v => UX * Math.SQRT2 / v >= 1.5 && UX * Math.SQRT2 / v <= 3.6);
+    if (!vdivs.length) return null;
+    const d = dispFor(s);
+    comp(d, 'R').extras.push({ sym: `${u}_R`, value: UR, unit: 'V', meter: true, q: 'UR' });
+    comp(d, t).value = undefined;
+    d.scope = { probes: [{ ch: 'CH_1', at: 1 }] };
+    const ux = `${u}_${t}`, c1 = newCtx(o, s), c2 = newCtx(o, s), c3 = newCtx(o, s), c4 = newCtx(o, s);
+    S(c1, 'חוק אוהם על הנגד', 'I', `${u}_R / R`, `${fmt(UR, 'V')} / ${fmt(s.R, 'Ω')}`, I, 'A');
+    readT(c2, tm); fStep(c2, tm.T);
+    S(c3, `ערך יעיל = ערך שיא-לשיא חלקי 2√2 (המשקף מחובר ${TO_COMP[t]})`, ux, `${u}_pp / (2√2)`, `${fmt(Upp, 'V')} / (2√2)`, UX, 'V');
+    S(c3, `חוק אוהם על ${COMP_NAME[t]}`, 'X_' + t, `${ux} / I`, `${fmt(UX, 'V')} / ${fmt(I, 'A')}`, X, 'Ω');
+    const lc = lcFromXPart(o, s, [t], [X]);
+    c3.steps.push(...lc.steps);
+    S(c4, 'משולש המתחים', u, `√(${u}_R² + ${ux}²)`, `√((${fmt(UR, 'V')})² + (${fmt(UX, 'V')})²)`, s.U, 'V');
+    const parts = [part('חשבו את הערך היעיל של הזרם I במעגל.', [ANS('I', I, 'A', 'I')], c1.steps),
+      part('היעזרו במסך המשקף, ומצאו את התדירות f של מקור המתח.', [ANS('f', s.f, 'Hz', 'f')], c2.steps),
+      part(`היעזרו במסך המשקף, וחשבו את ${t === 'L' ? 'השראות הסליל L' : 'קיבול הקבל C'}.`, [ANS(t, t === 'L' ? s.L : s.C, UNITS[t], t)], c3.steps),
+      part(`חשבו את המתח היעיל של מקור המתח ${u}.`, [ANS(u, s.U, 'V', 'U')], c4.steps)];
+    return { s, d, o, parts, kind: 'scC',
+      text: `באיור נתון מעגל טורי המחובר למקור מתח חילופין. קריאת מד המתח היא \u2066${fmt(UR, 'V')}\u2069. משקף תנודות מחובר ${TO_COMP[t]}, ומתחת למעגל מוצג המסך שלו.`,
+      screen: { T: tm.T, tdiv: tm.tdiv, vdiv: rng.pick(vdivs), showV: false, vpp: fmt(Upp, 'V'), vppSym: u, traces: [{ amp: UX * Math.SQRT2, ph: 0 }] } };
+  }
+  // הסגנון נבחר פעם אחת לפני ההגרלות החוזרות, כדי שסגנון שנפסל יותר לא יופיע פחות
+  function scopeStyle(rng, level) {
+    const b = rng.next() < 0.5;
+    if (level === 4) return b ? (r, t) => scopeA(r, t) : (r, t) => scopeB(r, t, 4);
+    return b ? (r, t) => scopeB(r, t, 5) : (r, t) => scopeC(r, t);
+  }
+
+  function makeMulti(rng, seed, level, type, useScope) {
     let r = null, tries = 0;
-    for (let t = 0; t < MAX_TRIES && !r; t++) { tries++; r = level <= 4 ? multiForward(rng, type, level) : multiReverse(rng, type); }
+    const build = useScope ? scopeStyle(rng, level) : null;
+    for (let t = 0; t < MAX_TRIES && !r; t++) { tries++; r = useScope ? build(rng, type) : level <= 4 ? multiForward(rng, type, level) : multiReverse(rng, type); }
     if (!r) throw new Error('no exercise');
     let vm = 0;
     r.d.comps.forEach(c => c.extras.forEach(e => { if (e.meter) e.meterName = 'V_' + (++vm); }));
     return {
       version: VERSION, seed, level, ctype: type, kind: r.kind, format: r.kind, tries,
       u: r.o.u, src: r.o.src, fmode: r.o.fmode, meters: r.o.meters, k: r.k,
-      state: r.s, disp: r.d, text: r.text, parts: r.parts,
+      state: r.s, disp: r.d, text: r.text, parts: r.parts, screen: r.screen || null,
     };
   }
 
-  // opts: { level, types:['RL','RC','RLC'], prevKind?, seed?, kind? (שאלה אחת, לבדיקות), type? }
+  // opts: { level, types:['RL','RC','RLC'], prevKind?, seed?, kind? (שאלה אחת, לבדיקות), type?,
+  //         scope? (שילוב משקף תנודות ברמות 4–5), scopeShare? (לבדיקות) }
   function makeExercise(opts) {
     const seed = opts.seed != null ? opts.seed >>> 0 : randomSeed();
     const rng = makeRng(seed);
-    const level = opts.level, type = opts.type || rng.pick(opts.types);
+    const level = opts.level, share = opts.scopeShare != null ? opts.scopeShare : opts.scope ? SCOPE_SHARE : 0;
+    // משקף תנודות: ההגרלה רק כשהאפשרות פעילה, כך שבלעדיה התרגילים זהים לגרסה הקודמת.
+    // ברמה 5 רק RL/RC, ולכן תרגיל משקף ברמה 5 בוחר מבין הסוגים האלה.
+    let useScope = false, types = opts.type ? [opts.type] : opts.types;
+    if (!opts.kind && level >= 4 && share > 0 && rng.next() < share) {
+      const ok = level === 5 ? types.filter(t => t !== 'RLC') : types;
+      if (ok.length) { useScope = true; types = ok; }
+    }
+    const type = opts.type || rng.pick(types);
     // רמות 2–5: תרגיל עם סעיפים. רמה 1 (או kind מפורש): שאלה אחת
-    if (level >= 2 && !opts.kind) return makeMulti(rng, seed, level, type);
+    if (level >= 2 && !opts.kind) return makeMulti(rng, seed, level, type, useScope);
     let k;
     if (opts.kind) k = KINDS.find(x => x.kind === opts.kind);
     else {
@@ -677,6 +816,12 @@
       c.extras.forEach(e => { if (typeof e.value === 'number') out.push({ sym: e.meter ? e.meterName : e.sym, text: fmt(e.value, e.unit), q: e.q }); });
     });
     if (d.current && typeof d.current.value === 'number') out.push({ sym: 'I', text: fmt(d.current.value, 'A'), q: 'I' });
+    const sc = ex.screen;
+    if (sc) {
+      out.push({ sym: 'Time/div', text: fmt(sc.tdiv, 's'), q: 'tdiv' });
+      if (sc.showV) out.push({ sym: 'Volt/div', text: fmt(sc.vdiv, 'V'), q: 'vdiv' });
+      if (sc.vpp) out.push({ sym: `${sc.vppSym}_pp`, text: sc.vpp, q: 'Upp' });
+    }
     return out;
   }
 
@@ -738,20 +883,72 @@
       labels: [plain(null, c.name)].concat(lines.map(l => plain(l.sym, l.val))) });
   }
 
+  // מחולל אותות: קופסה עם שלושה בוררי צורת גל (משולש, סינוס, ריבוע), הסינוס בחור
+  function drawGen(xs, yB, o) {
+    const w = 84, h = 36, x0 = xs - w / 2, y0 = yB - h / 2, bw = 22, bh = 14, by = y0 + 5;
+    o.push(`<rect class="ckt-box" x="${rd(x0)}" y="${rd(y0)}" width="${w}" height="${h}" rx="3"/>`);
+    [-1, 0, 1].forEach(k => {
+      const bx = xs + k * (bw + 4) - bw / 2, m = by + bh / 2;
+      o.push(`<rect x="${rd(bx)}" y="${rd(by)}" width="${bw}" height="${bh}" fill="${k === 0 ? '#1f2937' : '#fff'}" stroke="#1f2937" stroke-width="1.2"/>`);
+      const g = k === -1 ? `M${rd(bx + 3)},${rd(m + 3)} l4,-6 l4,6 l4,-6 l4,6`
+        : k === 0 ? `M${rd(bx + 3)},${rd(m)} q4,-9 8,0 t8,0`
+          : `M${rd(bx + 3)},${rd(m + 3)} v-6 h4 v6 h4 v-6 h4 v6`;
+      o.push(`<path d="${g}" style="stroke:${k === 0 ? '#fff' : '#1f2937'};stroke-width:1.2"/>`);
+    });
+    o.push(`<circle class="ckt-box" cx="${rd(xs - 14)}" cy="${rd(y0 + h - 8)}" r="3"/>`, `<circle class="ckt-box" cx="${rd(xs + 14)}" cy="${rd(y0 + h - 8)}" r="3"/>`);
+    o.push(text(xs - 24, y0 + h - 4, '+', 'middle', ' font-size="11"'), text(xs + 24, y0 + h - 4, '−', 'middle', ' font-size="11"'));
+    o.push(text(xs, y0 - 8, 'מחולל אותות', 'middle', ' font-size="13"'));
+    return { gw: w / 2, gh: h / 2 };
+  }
+  // סמל אדמה שתלוי מתחת לנקודה
+  const groundSym = (x, y) => ln(x, y, x, y + 10) + ln(x - 12, y + 10, x + 12, y + 10) + ln(x - 7, y + 15, x + 7, y + 15) + ln(x - 2.5, y + 20, x + 2.5, y + 20);
+  const SC = { BOX_H: 56, GAP: 30 };
+
+  // ציור מלא: המעגל, ומתחתיו מסך משקף התנודות אם יש
   function render(ex) {
-    const d = ex.disp, o = [], boxes = [];
+    const r = renderCkt(ex);
+    if (!ex.screen) return r;
+    const s = scopeSvg(ex.screen), W = Math.max(r.width, s.width), H = r.height + s.height + 8;
+    const dx = (W - r.width) / 2, nest = (svg, x, y) => svg.replace('<svg ', `<svg x="${rd(x)}" y="${rd(y)}" `);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${rd(W)} ${rd(H)}" width="${rd(W)}" height="${rd(H)}" role="img" aria-label="שרטוט המעגל ומסך משקף התנודות">` +
+      `<rect width="100%" height="100%" fill="#fff"/>` + nest(r.svg, dx, 0) + nest(s.svg, (W - s.width) / 2, r.height + 8) + `</svg>`;
+    return { svg, width: W, height: H, boxes: r.boxes.map(b => Object.assign({}, b, { x: b.x + dx })), srcLines: r.srcLines, screen: s };
+  }
+
+  function renderCkt(ex) {
+    const d = ex.disp, o = [], boxes = [], sc = d.scope;
     const anyVM = d.comps.some(c => c.extras.some(e => e.meter));
     const nBelow = Math.max(...d.comps.map(c => (c.value !== undefined ? 1 : 0) + c.extras.filter(e => !e.meter).length));
-    const yT = D.M + (anyVM ? D.VM_Y + D.VM_R + 26 : 34);
+    const yT = D.M + (sc ? SC.BOX_H + SC.GAP : 0) + (anyVM ? D.VM_Y + D.VM_R + 26 : 34);
     const xL = D.M + D.LEFT, cx0 = xL + D.PAD, xR = cx0 + d.comps.length * D.CW + D.PAD;
     const yB = yT + Math.max(150, 44 + nBelow * D.LINE + 50);
     const xs = (xL + xR) / 2, rs = 17;
+    const g = d.gen ? drawGen(xs, yB, o) : { gw: rs, gh: rs };
 
     // לולאה
     o.push(ln(xL, yT, cx0, yT));
     d.comps.forEach((c, i) => drawComp(c, cx0 + i * D.CW, yT, o, boxes));
     o.push(ln(cx0 + d.comps.length * D.CW, yT, xR, yT), ln(xR, yT, xR, yB));
-    o.push(ln(xR, yB, xs + rs, yB), ln(xs - rs, yB, xL, yB));
+    o.push(ln(xR, yB, xs + g.gw, yB), ln(xs - g.gw, yB, xL, yB));
+
+    // משקף תנודות: קופסה מעל המעגל, בדיק לכל ערוץ, והאדמה המשותפת בפינה הימנית התחתונה
+    let xRight = xR;
+    if (sc) {
+      const px = p => (p.at === 'src' ? xL + 20 : cx0 + p.at * D.CW + 16);
+      const xs2 = sc.probes.map(px), by0 = D.M, by1 = D.M + SC.BOX_H;
+      const bx0 = Math.min(...xs2) - 34, bx1 = Math.max(Math.max(...xs2) + 44, bx0 + 196), bym = (by0 + by1) / 2;
+      const xG = Math.max(xR, bx1) + 34;
+      o.push(`<rect class="ckt-box" x="${rd(bx0)}" y="${rd(by0)}" width="${rd(bx1 - bx0)}" height="${SC.BOX_H}" rx="3"/>`);
+      o.push(text((bx0 + bx1) / 2 + (sc.probes.length > 1 ? 0 : 20), by0 + 21, 'משקף תנודות', 'middle', ' font-weight="bold"'));
+      sc.probes.forEach((p, i) => {
+        o.push(ln(xs2[i], by1 + 4, xs2[i], yT), dot(xs2[i], yT));
+        o.push(`<circle class="ckt-box" cx="${rd(xs2[i])}" cy="${rd(by1)}" r="4"/>`);
+        o.push(text(xs2[i], by1 - 10, svgSym(p.ch), 'middle', ' font-size="12"'));
+      });
+      o.push(ln(bx1 + 4, bym, xG, bym), ln(xG, bym, xG, yB), ln(xR, yB, xG, yB), dot(xR, yB), groundSym(xG, yB));
+      o.push(`<circle class="ckt-box" cx="${rd(bx1)}" cy="${rd(bym)}" r="4"/>`, text(bx1 - 12, bym + 5, '−', 'middle', ' font-size="13"'));
+      xRight = xG + 12;
+    }
 
     // צד שמאל: מד זרם, חץ זרם, או חוט
     const ym = (yT + yB) / 2, cur = d.current;
@@ -768,30 +965,89 @@
       }
     }
 
-    // מקור: עיגול עם ~
-    o.push(`<circle class="ckt-meter" cx="${rd(xs)}" cy="${rd(yB)}" r="${rs}"/>`);
-    o.push(`<path d="M${rd(xs - 9)},${rd(yB)} q4.5,-9 9,0 t9,0"/>`);
+    // מקור: עיגול עם ~ (או מחולל אותות, שכבר צויר)
+    if (!d.gen) {
+      o.push(`<circle class="ckt-meter" cx="${rd(xs)}" cy="${rd(yB)}" r="${rs}"/>`);
+      o.push(`<path d="M${rd(xs - 9)},${rd(yB)} q4.5,-9 9,0 t9,0"/>`);
+    }
     const lines = d.src.map(x => (x.text ? { sym: x.sym, val: x.text } : { sym: x.sym, val: x.value === null ? null : fmt(x.value, x.unit) }))
       .concat(d.bottom.map(x => ({ sym: x.sym, val: null })));
-    lines.forEach((l, i) => o.push(text(xs, yB + rs + 24 + i * D.LINE, lineLabel(l.sym, l.val))));
+    lines.forEach((l, i) => o.push(text(xs, yB + g.gh + 24 + i * D.LINE, lineLabel(l.sym, l.val))));
     const srcW = Math.max(0, ...lines.map(l => plain(l.sym, l.val).length * D.CH));
 
-    const W = Math.max(xR + D.M, xs + srcW / 2 + D.M);
-    const H = yB + rs + 24 + Math.max(0, lines.length - 1) * D.LINE + 10 + D.M;
+    const W = Math.max(xRight + D.M, xs + srcW / 2 + D.M);
+    const H = (lines.length || !sc ? yB + g.gh + 24 + Math.max(0, lines.length - 1) * D.LINE : yB + Math.max(g.gh, 22)) + 10 + D.M;
     const svg =
       `<svg xmlns="http://www.w3.org/2000/svg" class="ckt" viewBox="0 0 ${rd(W)} ${rd(H)}" width="${rd(W)}" height="${rd(H)}" ` +
       `direction="ltr" font-family="Arial, Helvetica, sans-serif" font-size="14" role="img" aria-label="שרטוט המעגל">` +
       `<style>.ckt line,.ckt polyline,.ckt path{stroke:#1f2937;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}` +
       `.ckt .ckt-unk{stroke:#d9480f;stroke-width:2.6}.ckt text{fill:#1f2937}.ckt .ckt-q{fill:#d9480f;font-weight:bold}` +
-      `.ckt .ckt-fill{fill:#1f2937;stroke:none}.ckt .ckt-meter{fill:#fff;stroke:#1f2937;stroke-width:2}</style>` +
+      `.ckt .ckt-fill{fill:#1f2937;stroke:none}.ckt .ckt-meter,.ckt .ckt-box{fill:#fff;stroke:#1f2937;stroke-width:2}</style>` +
       `<rect width="100%" height="100%" fill="#fff"/>` + o.join('') + `</svg>`;
     return { svg, width: W, height: H, boxes, srcLines: lines.map(l => plain(l.sym, l.val)) };
   }
 
+  // מסך משקף התנודות: רשת של 10 על 8 חלוקות. sc = { T, tdiv, vdiv, showV, traces: [{ ch, amp, ph }], vpp }
+  // amp בוולט, ph ברדיאנים (מופע ההתחלה). ערוץ ראשון בקו עבה, שני בקו דק וכחול.
+  const SCR = { DV: 30, NX: 10, NY: 8 };
+  function scopeSvg(sc) {
+    const { DV, NX, NY } = SCR, W0 = NX * DV, H0 = NY * DV, two = sc.traces.length > 1;
+    const x0 = 30, y0 = two ? 44 : 26, ym = y0 + H0 / 2, o = [];
+    for (let i = 1; i < NX; i++) o.push(`<line class="g" x1="${x0 + i * DV}" y1="${y0}" x2="${x0 + i * DV}" y2="${y0 + H0}"/>`);
+    for (let j = 1; j < NY; j++) o.push(`<line class="g" x1="${x0}" y1="${y0 + j * DV}" x2="${x0 + W0}" y2="${y0 + j * DV}"/>`);
+    o.push(`<rect class="fr" x="${x0}" y="${y0}" width="${W0}" height="${H0}"/>`);
+    // צירים: t באמצע, V משמאל
+    o.push(`<line class="ax" x1="${x0}" y1="${ym}" x2="${x0 + W0 + 14}" y2="${ym}"/>`, `<path class="ah" d="M${x0 + W0 + 20},${ym} l-8,-4 v8 z"/>`);
+    o.push(`<line class="ax" x1="${x0}" y1="${y0 + H0}" x2="${x0}" y2="${y0 - 14}"/>`, `<path class="ah" d="M${x0},${y0 - 20} l-4,8 h8 z"/>`);
+    o.push(`<text x="${x0 + W0 + 26}" y="${ym + 5}">t</text>`, `<text x="${x0 - 8}" y="${ym + 5}" text-anchor="end">0</text>`, `<text x="${x0 - 8}" y="${y0 - 12}" text-anchor="end">V</text>`);
+    const yOf = v => ym - v / sc.vdiv * DV, xOf = t => x0 + t / sc.tdiv * DV;
+    sc.traces.forEach((tr, k) => {
+      const pts = [];
+      for (let px = 0; px <= W0; px += 1) pts.push(`${px ? 'L' : 'M'}${x0 + px},${rd(yOf(tr.amp * Math.sin(2 * Math.PI * (px / DV * sc.tdiv) / sc.T + tr.ph)))}`);
+      o.push(`<path class="${k ? 'w2' : 'w1'}" d="${pts.join('')}"/>`);
+    });
+    // תוויות ערוצים (רק בשני ערוצים): מעל הרשת, עם חץ אל שיא
+    if (two) sc.traces.forEach((tr, k) => {
+      const target = k ? 0.85 * W0 : 0.22 * W0, n0 = (Math.PI / 2 - tr.ph) / (2 * Math.PI);
+      let best = null;
+      for (let n = -2; n < 40; n++) {
+        const x = xOf((n0 + n) * sc.T);
+        if (x >= x0 + 8 && x <= x0 + W0 - 8 && (best === null || Math.abs(x - x0 - target) < Math.abs(best - x0 - target))) best = x;
+      }
+      const yp = yOf(tr.amp), cls = k ? 'l2' : 'l1';
+      o.push(`<text class="${cls}" x="${rd(best)}" y="${y0 - 22}" text-anchor="middle">CH<tspan dy="4" font-size="11">${k + 1}</tspan></text>`);
+      o.push(`<line class="${cls}" x1="${rd(best)}" y1="${y0 - 16}" x2="${rd(best)}" y2="${rd(yp - 7)}"/>`, `<path class="${cls}" d="M${rd(best)},${rd(yp - 2)} l-4,-8 h8 z"/>`);
+    });
+    // V_p-p: קווים מקווקווים מהשיאים וחץ כפול מימין למסך
+    let extraW = 34;
+    if (sc.vpp) {
+      const a = sc.traces[0].amp, yt = yOf(a), yb = yOf(-a), xa = x0 + W0 + 48, n0 = (Math.PI / 2 - sc.traces[0].ph) / (2 * Math.PI);
+      let xp = x0;
+      for (let n = -2; n < 40; n++) { const x = xOf((n0 + n) * sc.T); if (x <= x0 + W0) xp = Math.max(xp, x); }
+      const xq = Math.min(x0 + W0, xp + sc.T / 2 / sc.tdiv * DV);
+      o.push(`<line class="ds" x1="${rd(xp)}" y1="${rd(yt)}" x2="${xa + 8}" y2="${rd(yt)}"/>`, `<line class="ds" x1="${rd(xq > xp ? xq : xp)}" y1="${rd(yb)}" x2="${xa + 8}" y2="${rd(yb)}"/>`);
+      o.push(`<line class="ax" x1="${xa}" y1="${rd(yt + 6)}" x2="${xa}" y2="${rd(yb - 6)}"/>`, `<path class="ah" d="M${xa},${rd(yt)} l-4,8 h8 z"/>`, `<path class="ah" d="M${xa},${rd(yb)} l-4,-8 h8 z"/>`);
+      o.push(`<text x="${xa + 10}" y="${rd(ym + 5)}">${sc.vppSym || 'V'}<tspan dy="4" font-size="11">p-p</tspan><tspan dy="-4"> = ${sc.vpp}</tspan></text>`);
+      extraW = 48 + 10 + 12 + (sc.vpp.length + 7) * D.CH;
+    }
+    const settings = [`Time/div: ${fmt(sc.tdiv, 's')}/div`].concat(sc.showV ? [`Volt/div: ${fmt(sc.vdiv, 'V')}/div`] : []);
+    settings.forEach((t, i) => o.push(`<text x="${x0 + W0 / 2}" y="${y0 + H0 + 26 + i * 20}" text-anchor="middle">${t}</text>`));
+    const W = x0 + W0 + extraW, H = y0 + H0 + 26 + (settings.length - 1) * 20 + 12;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" class="scope" viewBox="0 0 ${rd(W)} ${rd(H)}" width="${rd(W)}" height="${rd(H)}" ` +
+      `direction="ltr" font-family="Arial, Helvetica, sans-serif" font-size="14" role="img" aria-label="מסך משקף התנודות">` +
+      `<style>.scope text{fill:#1f2937}.scope .g{stroke:#cbd5e1;stroke-width:1}.scope .fr{fill:none;stroke:#1f2937;stroke-width:1.5}` +
+      `.scope .ax{stroke:#1f2937;stroke-width:1.5}.scope .ah{fill:#1f2937}.scope .ds{stroke:#1f2937;stroke-width:1;stroke-dasharray:4 3}` +
+      `.scope .w1{fill:none;stroke:#1f2937;stroke-width:3}.scope .w2{fill:none;stroke:#1d4ed8;stroke-width:2}` +
+      `.scope line.l1{stroke:#1f2937;stroke-width:1.2}.scope path.l1,.scope text.l1{fill:#1f2937;stroke:none}` +
+      `.scope line.l2{stroke:#1d4ed8;stroke-width:1.2}.scope path.l2,.scope text.l2{fill:#1d4ed8;stroke:none}</style>` +
+      `<rect width="100%" height="100%" fill="#fff"/>` + o.join('') + `</svg>`;
+    return { svg, width: W, height: H };
+  }
+
   global.Engine = {
-    VERSION, MAX_LEVEL, MAX_ATTEMPTS, TOL, ANG_TOL, MAX_TRIES, VALUES, TYPE_NAMES, COMPS, KINDS,
+    VERSION, MAX_LEVEL, MAX_ATTEMPTS, TOL, ANG_TOL, MAX_TRIES, VALUES, TYPE_NAMES, COMPS, KINDS, SCOPE_SHARE, SCOPE,
     makeRng, randomSeed, Units, CoreUnits: CU, fmt, solveState, valid, makeExercise, givensList, levelChoices,
-    minLevel: () => 1, Draw: { render, D },
+    minLevel: () => 1, Draw: { render, renderCkt, scopeSvg, D, SCR },
   };
 })(typeof window !== 'undefined' ? window : globalThis);
 </script>
@@ -803,7 +1059,7 @@
   const E = window.Engine, $ = id => document.getElementById(id), esc = Core.esc, symHtml = Core.symHtml;
 
   // ---------- הגדרות ----------
-  const readSettings = () => ({ types: ['RL', 'RC', 'RLC'].filter(t => $('t' + t).checked), level: +$('level').value });
+  const readSettings = () => ({ types: ['RL', 'RC', 'RLC'].filter(t => $('t' + t).checked), level: +$('level').value, scope: $('scope').checked });
   function syncSettings() {
     const s = readSettings();
     $('setNote').textContent = s.types.length ? '' : 'יש לבחור לפחות סוג מעגל אחד.';
@@ -820,7 +1076,7 @@
   Core.mountUI({
     engine: E, units: E.CoreUnits, prefixes: ['', 'M', 'k', 'm', 'µ', 'n'],
     readSettings, minLevel: () => E.minLevel(),
-    makeExercise: (s, level, prevKind) => E.makeExercise({ level, types: s.types, prevKind }),
+    makeExercise: (s, level, prevKind) => E.makeExercise({ level, types: s.types, prevKind, scope: s.scope }),
     ctypeHtml: ex => `מעגל <bdi dir="ltr">${esc(E.TYPE_NAMES[ex.ctype])}</bdi> טורי`,
     render: ex => E.Draw.render(ex),
     givens: ex => E.givensList(ex),
