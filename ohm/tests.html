@@ -289,6 +289,9 @@
         known.add(st.lhs);
       }
       ok(p.text && !/undefined|NaN/.test(p.text), 'part text ' + tag);
+      // לא שואלים גודל שכבר חושב כשלב ביניים בסעיף קודם (מ-v2.3)
+      if (pi) p.answers.forEach(a => ok(!ex.parts.slice(0, pi).some(pp => pp.steps.some(s => s.lhs === a.sym)),
+        `part ${pi + 1} asks ${a.sym}, already computed in an earlier part ` + tag));
     });
     ok(!/undefined|NaN/.test(ex.text), 'intro text ' + tag);
   }

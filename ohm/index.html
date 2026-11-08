@@ -402,6 +402,8 @@
     answers: [A(q + '_' + t.idx, t[q], UNIT[q], q + t.idx)], steps: withFolds(f, ctx => walkDown2(ctx, t, [q], initial)) });
   const pP = (c, f, t, initial) => ({ text: `חשבו את ההספק P_${t.idx} המתפתח בנגד R_${t.idx}.`, answers: [A('P_' + t.idx, t.V * t.I, 'W', 'P' + t.idx)],
     steps: withFolds(f, ctx => { walkDown2(ctx, t, ['I', 'V'], initial); powerStep(ctx, t); }) });
+  const pVTup = (c, f, t, q0) => ({ text: 'חשבו את מתח המקור V_T.', answers: [A('V_T', c.VT, 'V', 'VT')],
+    steps: withFolds(f, ctx => walkUp2(ctx, t, q0, 'V')) });
   const pITup = (c, f, t, q0) => ({ text: 'חשבו את הזרם הכולל I_T שמספק המקור.', answers: [A('I_T', c.root.I, 'A', 'IT')],
     steps: withFolds(f, ctx => walkUp2(ctx, t, q0, 'I')) });
 
@@ -433,6 +435,15 @@
       clean = [t[q0]];
       textExtra = q0 === 'I' ? ` הזרם הזורם דרך הנגד R_${t.idx} הוא I_${t.idx} = ${f(t.I, 'A')}.` : ` המתח על הנגד R_${t.idx} הוא V_${t.idx} = ${f(t.V, 'V')}.`;
       const m = rng.pick(leaves.filter(x => x !== t));
+      if (c.root.type === 'P') {
+        // המקור מחובר ישירות לחיבור מקבילי: הדרך מהנתון אל I_T עוברת דרך V_T (המתח על הענף = מתח המקור).
+        // לכן שואלים לפי סדר הפתרון: V_T → (R_T) → I_T → נגד אחר, ולא שואלים שוב גודל שכבר חושב (מ-v2.3)
+        parts.push(pVTup(c, f, t, q0));
+        if (n >= 4) parts.push(pRT(c, f));
+        parts.push(pIT(c, f));
+        if (n >= 3) parts.push(power && rng.next() < 0.4 ? pP(c, f, m, ['V', 'I']) : pLeaf(c, f, m, rng.pick(['I', 'V']), ['V', 'I']));
+        return { ann, parts, clean, textExtra };
+      }
       parts.push(pITup(c, f, t, q0));
       if (n >= 3) parts.push(power && rng.next() < 0.4 ? pP(c, f, m, ['I']) : pLeaf(c, f, m, rng.pick(['I', 'V']), ['I']));
       if (n >= 4) parts.push(pRT(c, f));
