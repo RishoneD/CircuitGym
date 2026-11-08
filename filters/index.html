@@ -34,6 +34,7 @@
 <main>
   <section id="setup" class="card">
     <h2>הגדרות תרגול</h2>
+    <p class="muted">מה מתרגלים כאן: מסנני RC ו-RL עם אות מבוא של קפיצות מתח: זיהוי הגרף, קבוע זמן, סרטוט מתח המוצא, ומתח המוצא וזמנים. תרגילים עם סעיפים ב-4 רמות קושי.</p>
     <fieldset>
       <legend>סוג המסנן (אפשר לבחור כמה)</legend>
       <label class="opt"><input type="checkbox" id="tRC-LP" checked> <bdi dir="ltr">RC-LPF</bdi></label>
@@ -64,7 +65,7 @@
 (function (global) {
   'use strict';
 
-  const VERSION = 'v2.2';
+  const VERSION = 'v2.3';
   const MAX_LEVEL = 4;
   const MAX_ATTEMPTS = 3;
   const TOL = 0.01;               // סטייה יחסית מותרת (1%)

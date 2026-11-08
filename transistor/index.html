@@ -34,6 +34,7 @@
 <main>
   <section id="setup" class="card">
     <h2>הגדרות תרגול</h2>
+    <p class="muted">מה מתרגלים כאן: תרגול בסיסי (DC): נקודת עבודה, קו עבודה, מצבי הטרנזיסטור ואופייני מוצא, ב-3 רמות קושי. תרגול מתקדם: טרנזיסטור כמגבר (מעגל תמורה, הגבר, מבוא סינוסואידלי, נגד פולט) וכמתג (נורית LED, אות מדרגות במבוא, חיישן בבסיס), ב-5 רמות קושי.</p>
     <fieldset>
       <legend>סוג התרגול</legend>
       <label class="opt"><input type="radio" name="mode" id="mBasic" value="basic" checked> תרגול בסיסי (DC)</label>
@@ -61,7 +62,7 @@
 (function (global) {
   'use strict';
 
-  const VERSION = 'v2.2';
+  const VERSION = 'v2.3';
   const { makeRng, randomSeed } = global.Core;
   const Units = global.Core.makeUnits({ prefixes: ['M', 'k', '', 'm', 'µ'], tol: 0.01 });
   const { numStr } = Units;

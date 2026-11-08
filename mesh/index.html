@@ -34,6 +34,7 @@
 <main>
   <section id="setup" class="card">
     <h2>הגדרות תרגול</h2>
+    <p class="muted">מה מתרגלים כאן: מעגלים עם שני חוגים ושתיים או שלוש סוללות: זרמים וכיוונם, מתחים בין נקודות, הספקים, ושאלות הפוכות עם מדי זרם. 5 רמות קושי.</p>
     <label class="row">רמת קושי התחלתית:
       <select id="level">
         <option value="1">1</option>
@@ -60,7 +61,7 @@
 (function (global) {
   'use strict';
 
-  const VERSION = 'v2.2';
+  const VERSION = 'v2.3';
   const MAX_LEVEL = 5;
   const MAX_ATTEMPTS = 3;
   const TOL = 0.01;        // סטייה יחסית מותרת (1%)

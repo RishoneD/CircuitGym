@@ -34,6 +34,7 @@
 <main>
   <section id="setup" class="card">
     <h2>הגדרות תרגול</h2>
+    <p class="muted">מה מתרגלים כאן: משווה עם מתח ייחוס ממחלק, נורית LED במוצא, וחיישנים (אור, טמפרטורה, כוח, זווית וקול) עם אופיין בגרף: מצב הנורית, תחומי הפעולה, זרם המוצא, וגל משולש במבוא. 5 רמות קושי.</p>
     <fieldset>
       <legend>חיישנים (ברמות 3–4; אפשר לבחור כמה)</legend>
       <label class="opt"><input type="checkbox" id="sLDR" checked> חיישן אור (LDR)</label>
@@ -62,7 +63,7 @@
 (function (global) {
   'use strict';
 
-  const VERSION = 'v2.2';
+  const VERSION = 'v2.3';
   const { makeRng, randomSeed } = global.Core;
   const Units = global.Core.makeUnits({ prefixes: ['M', 'k', '', 'm', 'µ'], tol: 0.01 });
   const { numStr } = Units;

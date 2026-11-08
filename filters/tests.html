@@ -124,6 +124,14 @@
       [...h.nextElementSibling.querySelectorAll('a.card')].map(a => a.getAttribute('href').split('/')[0]).join(','));
     log('landing: ' + chapters.join(' | '));
     ok(chapters.join(' | ') === 'חשמל: ohm,mesh,ac | אלקטרוניקה: opamp,comparator,transistor,filters', 'landing chapters');
+    // מ-v2.3: כרטיס = סמל, כותרת ותגיות; התיאור המלא במסך ההגדרות של המודול
+    for (const a of land.querySelectorAll('a.card')) {
+      const m = a.getAttribute('href').split('/')[0];
+      ok(a.querySelector('.ic svg') && a.querySelector('h2') && a.querySelectorAll('.tag').length >= 3 && !a.querySelector('p'), `landing card ${m}: icon, title, 3+ tags`);
+      const page = new DOMParser().parseFromString(await (await fetch(new URL('../' + a.getAttribute('href'), location.href), { cache: 'no-store' })).text(), 'text/html');
+      const about = page.querySelector('#setup h2 + p.muted');
+      ok(about && about.textContent.startsWith('מה מתרגלים כאן: ') && about.textContent.length > 40, `${m}: topic description in settings`);
+    }
   }
 
   // ---------- ריצה המונית ----------

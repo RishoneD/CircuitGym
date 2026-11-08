@@ -34,6 +34,7 @@
 <main>
   <section id="setup" class="card">
     <h2>הגדרות תרגול</h2>
+    <p class="muted">מה מתרגלים כאן: תרגול בסיסי: מגבר מהפך, עוקב מופע וחוצץ, ב-3 רמות קושי. תרגול מתקדם: מגבר מסכם ומחסר וקסקדה של <bdi dir="ltr">2–3</bdi> מגברים, ב-5 רמות קושי, אפשר גם עם משווה.</p>
     <fieldset>
       <legend>סוג התרגול</legend>
       <label class="opt"><input type="radio" name="mode" id="mBasic" value="basic" checked> תרגול בסיסי</label>
@@ -63,7 +64,7 @@
 (function (global) {
   'use strict';
 
-  const VERSION = 'v2.2';
+  const VERSION = 'v2.3';
   const { makeRng, randomSeed } = global.Core;
   const Units = global.Core.makeUnits({ prefixes: ['M', 'k', '', 'm', 'µ'], tol: 0.01 });
   const { numStr } = Units;
