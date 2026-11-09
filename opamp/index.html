@@ -276,6 +276,12 @@
   const RATIO = [0.5, 1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10];
   const R_OK = r => r >= 500 && r <= 100 * K && Units.isClean(r);
   const VIS = [0.5, 1, 1.5, 2, 2.5, 3, 4, 5];
+  // מ-v2.3.1, תרגול בסיסי בלבד (המתקדם נשאר עם R1S/RATIO/VIS): R_1 ו-R_2 נבחרים כל אחד מרשימת ערכים "תקניים",
+  // וההגבר R_2/R_1 חייב להיות נקי (עד 3 ספרות) ובין 0.2 ל-20. כך יש 79 הגברים שונים במקום 11, בלי ערכים כמו 7.05 kΩ.
+  const RN_B = [1, 1.2, 1.5, 2, 2.2, 2.5, 3, 3.3, 4, 4.7, 5, 6, 6.8, 8, 10, 12, 15, 20, 22, 25, 30, 33, 40, 47, 50, 60, 68, 80, 100].map(x => x * K);
+  const VIS_B = [0.1, 0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.75, 0.8, 1, 1.2, 1.5, 2, 2.5, 3, 4, 5];
+  const RLS_B = [0.1, 0.2, 0.22, 0.25, 0.33, 0.4, 0.47, 0.5, 0.68, 1, 1.2, 1.5, 2, 2.2, 2.5, 3, 3.3, 4, 4.7, 5, 6, 6.8, 8, 10, 12, 15, 20].map(x => x * K);
+  const gainOk = (R1, Rf) => { const q = Math.round(Rf / R1 * 1e9) / 1e9; return q >= 0.2 && q <= 20 && Units.isClean(q); };
   const VCCS = [10, 12, 15];
   const TYPE_NAMES = { INV: 'מגבר מהפך', NINV: 'מגבר עוקב מופע', BUF: 'חוצץ (BUFFER)' };
   const BUF_PROPS = 'חוצץ (עוקב מתח): ההגבר שלו 1 (V_o = V_i), התנגדות המבוא שלו גבוהה מאוד (כמעט לא נכנס אליו זרם, ולכן הוא לא מעמיס על המקור), והתנגדות המוצא שלו נמוכה מאוד (הוא מספק את זרם העומס). משמש להפרדה בין מקור לעומס.';
@@ -296,11 +302,17 @@
       if (R_OK(Rf)) return { R1, Rf };
     }
   }
+  function pickGainB(rng) {
+    for (;;) {
+      const R1 = rng.pick(RN_B), Rf = rng.pick(RN_B);
+      if (gainOk(R1, Rf)) return { R1, Rf };
+    }
+  }
   // מקור המבוא: הדק (V_i), סוללה, או מחלק מתח. Vi = המתח האפקטיבי בנקודה A
   function pickSource(rng, kinds) {
     const k = rng.pick(kinds);
-    if (k === 'term') { const Vi = rng.pick(VIS) * (rng.next() < 0.5 ? -1 : 1); return { k, Vi }; }
-    if (k === 'bat') { const V = rng.pick(VIS), plusTop = rng.next() < 0.6; return { k, V, plusTop, Vi: plusTop ? V : -V }; }
+    if (k === 'term') { const Vi = rng.pick(VIS_B) * (rng.next() < 0.5 ? -1 : 1); return { k, Vi }; }
+    if (k === 'bat') { const V = rng.pick(VIS_B), plusTop = rng.next() < 0.6; return { k, V, plusTop, Vi: plusTop ? V : -V }; }
     for (;;) {
       const Vs = rng.pick([2, 3, 5, 6, 9, 10, 12]) * (rng.next() < 0.75 ? 1 : -1), Rt = rng.pick([1, 2, 3, 4, 5, 6, 10]) * K, Rb = rng.pick([1, 2, 3, 4, 5, 6, 10]) * K;
       const Vi = rnd(Vs * Rb / (Rt + Rb));
@@ -386,8 +398,8 @@
     const A = gainOf(m);
     if (m.src.k === 'div') {   // מחליפים את R_2
       for (let t = 0; t < 50; t++) {
-        const Rf2 = rnd(m.R1 * rng.pick(RATIO.concat([12, 15, 20])));
-        if (Rf2 === m.Rf || !R_OK(Rf2)) continue;
+        const Rf2 = rng.pick(RN_B);
+        if (Rf2 === m.Rf || !gainOk(m.R1, Rf2)) continue;
         const m2 = Object.assign({}, m, { Rf: Rf2 }), raw = gainOf(m2) * m.src.Vi, vo = sat(raw, m.vcc);
         if (!clean(vo)) continue;
         if ((rng.next() < 0.7) !== (Math.abs(raw) > m.vcc)) continue;
@@ -397,7 +409,7 @@
       return null;
     }
     for (let t = 0; t < 50; t++) {
-      const v2 = rng.pick(VIS.concat([6, 8, 10])) * (rng.next() < 0.5 ? -1 : 1);
+      const v2 = rng.pick(VIS_B.concat([6, 8, 10])) * (rng.next() < 0.5 ? -1 : 1);
       if (v2 === m.src.Vi) continue;
       const raw = A * v2, vo = sat(raw, m.vcc);
       if ((rng.next() < 0.7) !== (Math.abs(raw) > m.vcc)) continue;
@@ -415,8 +427,8 @@
   }
   function revPart(rng, m) {
     for (let t = 0; t < 50; t++) {
-      const Rf2 = rnd(m.R1 * rng.pick(RATIO));
-      if (Rf2 === m.Rf || !R_OK(Rf2)) continue;
+      const Rf2 = rng.pick(RN_B);
+      if (Rf2 === m.Rf || !gainOk(m.R1, Rf2)) continue;
       const m2 = Object.assign({}, m, { Rf: Rf2 }), vo = gainOf(m2) * m.src.Vi;
       if (Math.abs(vo) >= m.vcc || !clean(vo)) continue;
       const solve = m.type === 'INV'
@@ -443,21 +455,23 @@
   }
 
   function makeBasic(rng, level, types) {
+    const bufVo = rng.next() < 0.5;   // חוצץ ברמה 1: נבחר פעם אחת, כדי ש-I_o (שנפסל יותר) לא יופיע פחות
     for (let t = 0; t < 500; t++) {
       const type = rng.pick(types), m = { type };
-      if (type !== 'BUF') Object.assign(m, pickGain(rng, type));
+      if (type !== 'BUF') Object.assign(m, pickGainB(rng));
       m.vcc = level >= 2 ? rng.pick(VCCS) : null;
       let parts, sine = false;
       if (level === 1) {
         m.src = pickSource(rng, ['term']);
-        if (type === 'BUF') { m.RL = rng.pick([1, 2, 4, 5, 10]) * K; parts = [P.io(m)]; }
+        // חוצץ: לפעמים V_o (ההגבר 1, גם עם עומס) ולפעמים I_o (מ-v2.3.1)
+        if (type === 'BUF') { m.RL = rng.pick(RLS_B); parts = [bufVo ? P.vo(m) : P.io(m)]; }
         else parts = [P.vo(m)];
         const raw = gainOf(m) * m.src.Vi;
-        if (Math.abs(raw) > 12) continue;
+        if (Math.abs(raw) > 12 || Math.abs(raw) < 0.1) continue;
       } else if (level === 2) {
         m.src = pickSource(rng, ['term']);
-        if (Math.abs(gainOf(m) * m.src.Vi) >= m.vcc) continue;
-        if (type === 'BUF') { m.RL = rng.pick([1, 2, 4, 5, 10]) * K; parts = [P.role(), P.vo(m), P.io(m)]; }
+        if (Math.abs(gainOf(m) * m.src.Vi) >= m.vcc || Math.abs(gainOf(m) * m.src.Vi) < 0.1) continue;
+        if (type === 'BUF') { m.RL = rng.pick(RLS_B); parts = [P.role(), P.vo(m), P.io(m)]; }
         else {
           parts = [];
           if (rng.next() < 0.5) parts.push(P.vB(m));
