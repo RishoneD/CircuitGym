@@ -140,7 +140,7 @@
     const pages = { landing: '../index.html', ohm: '../ohm/index.html', ac: 'index.html' }, vers = {};
     for (const [name, path] of Object.entries(pages)) {
       const url = new URL(path, location.href), src = await (await fetch(url, { cache: 'no-store' })).text();
-      const m = /const VERSION = '(v\d+\.\d+)'/.exec(src);
+      const m = /const VERSION = '(v\d+\.\d+(?:\.\d+)?)'/.exec(src);
       vers[name] = m && m[1];
       for (const a of new DOMParser().parseFromString(src, 'text/html').querySelectorAll('a[href]')) {
         const href = a.getAttribute('href');

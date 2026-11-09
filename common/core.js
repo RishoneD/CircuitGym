@@ -99,7 +99,19 @@
   // ---------------- UI helpers ----------------
   const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   // סמלים בכתיב X_sub ← HTML עם כתב תחתון, מבודד משמאל לימין
-  const symHtml = s => s.replace(/\b([A-Za-z])_([0-9A-Za-z]+)/g, '<bdi dir="ltr">$1<sub>$2</sub></bdi>');
+  // מ-v2.3.1: ביטוי "סמל = ערך" בתוך משפט בעברית (למשל V_1 = 5 V, A_v = 1 + R_2 / R_1, X_C = 1/(ωC))
+  // מבודד משמאל לימין (LRI…PDI), אחרת המספר והיחידה מתהפכים. הביטוי נמשך מהסמל עד המילה העברית הבאה,
+  // או עד פסיק, נקודה בסוף משפט, נקודתיים, סימן שאלה או קריאה. "0.7" לא נחתך, וסוגר סוגר שאין לו פותח נשאר בחוץ.
+  const HEB = '\\u0590-\\u05FF';
+  const EQ_RE = new RegExp(`(?:\\b[A-Za-z][A-Za-z0-9]*(?:_[0-9A-Za-z]+)?|[ωφβ])′?\\s=\\s(?:[^${HEB},;:?!\\u2066-\\u2069\\s]|\\s(?!\\s*\\(?[${HEB}]))*?(?=\\s*\\(?[${HEB}]|[,;:?!\\u2066-\\u2069]|\\.(?!\\d)|$)`, 'g');
+  const isoEq = s => String(s).replace(EQ_RE, m => {
+    let e = m.trimEnd(), tail = m.slice(e.length);
+    const n = c => e.split(c).length - 1;
+    while (e.endsWith(')') && n(')') > n('(')) { tail = ')' + tail; e = e.slice(0, -1).trimEnd(); }
+    return '⁦' + e + '⁩' + tail;
+  });
+  // סמלים בכתיב X_sub ← HTML עם כתב תחתון, מבודד משמאל לימין; וביטויי "סמל = ערך" מבודדים (isoEq)
+  const symHtml = s => isoEq(s).replace(/\b([A-Za-z])_([0-9A-Za-z]+)/g, '<bdi dir="ltr">$1<sub>$2</sub></bdi>');
   const PREFIX_OPTS = { M: ['1000000', 'M'], k: ['1000', 'k'], '': ['1', '(ללא)'], m: ['0.001', 'm'], 'µ': ['0.000001', 'µ'], n: ['1e-9', 'n'] };
   const PREFIX_ORDER = ['', 'M', 'k', 'm', 'µ', 'n'];
 
@@ -203,9 +215,9 @@
       $('choices').hidden = true;
       renderPart();
     }
-    const ansLabel = a => (a.type === 'choice' ? esc(a.short || a.label || 'הבחירה') : `<bdi dir="ltr">${symHtml(esc(a.sym))}</bdi>`);
+    const ansLabel = a => (a.type === 'choice' ? esc(isoEq(a.short || a.label || 'הבחירה')) : `<bdi dir="ltr">${symHtml(esc(a.sym))}</bdi>`);
     const ansValueText = a => {
-      if (a.type === 'choice') return esc(a.options.find(o => o.value === a.value).label);
+      if (a.type === 'choice') return esc(isoEq(a.options.find(o => o.value === a.value).label));
       if (a.type === 'binary') return `<bdi dir="ltr">${esc(a.value)}</bdi>`;
       return `<bdi dir="ltr">${symHtml(esc(a.sym))} = ${esc(U.formatAnswer(a.value, a.unit, a.prefix))}</bdi>`;
     };
@@ -238,11 +250,11 @@
       // part.prompt (אופציונלי) מחליף את שורת "נעלם" בהנחיה, למשל "בחרו את הגרף הנכון."
       $('unknown').innerHTML = part.prompt ? `<span class="prompt">${symHtml(esc(part.prompt))}</span>`
         : '<span class="muted">נעלם:</span> ' + part.answers.map(a => a.type === 'choice'
-          ? `<span class="chip unk">${esc(a.label)}</span>`
+          ? `<span class="chip unk">${esc(isoEq(a.label))}</span>`
           : `<span class="chip unk" dir="ltr">${symHtml(esc(a.sym))} = ?</span>`).join(' ');
       $('ansRows').innerHTML = part.answers.map((a, i) => {
         if (a.type === 'choice')
-          return `<span class="ansbox dirbox">${esc(a.label)}: <select data-i="${i}" class="ch"><option value="">בחרו</option>${a.options.map(o => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('')}</select></span>`;
+          return `<span class="ansbox dirbox">${esc(isoEq(a.label))}: <select data-i="${i}" class="ch"><option value="">בחרו</option>${a.options.map(o => `<option value="${esc(o.value)}">${esc(isoEq(o.label))}</option>`).join('')}</select></span>`;
         const pre = a.type === 'num' && a.prefix
           ? `<select data-i="${i}" class="pre" aria-label="תחילית">${PREFIX_ORDER.filter(p => cfg.prefixes.includes(p)).map(p => `<option value="${PREFIX_OPTS[p][0]}">${PREFIX_OPTS[p][1]}</option>`).join('')}</select>` : '';
         const mode = a.type === 'angle' || a.signed ? 'text' : a.type === 'binary' ? 'numeric' : 'decimal';
@@ -403,5 +415,5 @@
     return st;
   }
 
-  global.Core = { makeRng, randomSeed, makeUnits, levelChoices, esc, symHtml, mountUI };
+  global.Core = { makeRng, randomSeed, makeUnits, levelChoices, esc, isoEq, symHtml, mountUI };
 })(typeof window !== 'undefined' ? window : globalThis);

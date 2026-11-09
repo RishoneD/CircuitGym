@@ -68,7 +68,7 @@
 (function (global) {
   'use strict';
 
-  const VERSION = 'v2.3';
+  const VERSION = 'v2.3.1';
   const MAX_LEVEL = 5;
   const MAX_ATTEMPTS = 3;
   const TOL = 0.01;        // סטייה יחסית מותרת בבדיקת תשובה (1%)
@@ -855,7 +855,7 @@
   // ---------- תרגיל ----------
   const stepsHtml = (ex, pi) => '<ol class="steps">' + ex.parts[pi].steps.map(step => {
     const parts = [step.lhs, step.formula, step.subst].filter(Boolean).map(p => symHtml(esc(p)));
-    return `<li><div class="sn">${esc(step.note)}</div><div class="eq" dir="ltr">${parts.join(' = ')} = ${esc(E.Units.format(step.value, step.unit, ex.prefixes, 4))}</div></li>`;
+    return `<li><div class="sn">${symHtml(esc(step.note))}</div><div class="eq" dir="ltr">${parts.join(' = ')} = ${esc(E.Units.format(step.value, step.unit, ex.prefixes, 4))}</div></li>`;
   }).join('') + '</ol>';
   Core.mountUI({
     engine: E, units: E.Units, prefixes: ['', 'M', 'k', 'm', 'µ'],

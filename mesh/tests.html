@@ -155,7 +155,7 @@
     const pages = { landing: '../index.html', ohm: '../ohm/index.html', mesh: 'index.html', ac: '../ac/index.html', opamp: '../opamp/index.html', comparator: '../comparator/index.html', transistor: '../transistor/index.html', filters: '../filters/index.html' }, vers = {};
     for (const [name, path] of Object.entries(pages)) {
       const url = new URL(path, location.href), src = await (await fetch(url, { cache: 'no-store' })).text();
-      vers[name] = (/const VERSION = '(v\d+\.\d+)'/.exec(src) || [])[1];
+      vers[name] = (/const VERSION = '(v\d+\.\d+(?:\.\d+)?)'/.exec(src) || [])[1];
       for (const a of new DOMParser().parseFromString(src, 'text/html').querySelectorAll('a[href]')) {
         const href = a.getAttribute('href');
         ok(!/^(\/|[a-z]+:)/i.test(href), `non-relative link "${href}" on ${name}`);

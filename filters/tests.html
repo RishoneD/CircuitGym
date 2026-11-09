@@ -90,7 +90,7 @@
     const pages = { landing: '../index.html', ohm: '../ohm/index.html', mesh: '../mesh/index.html', ac: '../ac/index.html', opamp: '../opamp/index.html', comparator: '../comparator/index.html', transistor: '../transistor/index.html', filters: 'index.html' }, vers = {};
     for (const [name, path] of Object.entries(pages)) {
       const url = new URL(path, location.href), src = await (await fetch(url, { cache: 'no-store' })).text();
-      vers[name] = (/const VERSION = '(v\d+\.\d+)'/.exec(src) || [])[1];
+      vers[name] = (/const VERSION = '(v\d+\.\d+(?:\.\d+)?)'/.exec(src) || [])[1];
       for (const a of new DOMParser().parseFromString(src, 'text/html').querySelectorAll('a[href]')) {
         const href = a.getAttribute('href');
         ok(!/^(\/|[a-z]+:)/i.test(href), `non-relative link "${href}" on ${name}`);
@@ -124,6 +124,24 @@
       [...h.nextElementSibling.querySelectorAll('a.card')].map(a => a.getAttribute('href').split('/')[0]).join(','));
     log('landing: ' + chapters.join(' | '));
     ok(chapters.join(' | ') === 'חשמל: ohm,mesh,ac | אלקטרוניקה: opamp,comparator,transistor,filters', 'landing chapters');
+    { // מ-v2.3.1: ביטוי "סמל = ערך" בתוך משפט בעברית מבודד משמאל לימין (Core.isoEq, דרך symHtml)
+      const L = '⁦', P = '⁩', I = Core.isoEq;
+      const cases = [
+        ['המתח על הנגד R_1 הוא V_1 = 5 V.', `המתח על הנגד R_1 הוא ${L}V_1 = 5 V${P}.`],
+        ['מתח המבוא הוא V_i = -2.5 V. מהו מתח המוצא V_o?', `מתח המבוא הוא ${L}V_i = -2.5 V${P}. מהו מתח המוצא V_o?`],
+        ['במגבר עוקב מופע A_v = 1 + R_2 / R_1, ולכן:', `במגבר עוקב מופע ${L}A_v = 1 + R_2 / R_1${P}, ולכן:`],
+        ['לפני t = 2 ms מתח המבוא היה 0.', `לפני ${L}t = 2 ms${P} מתח המבוא היה 0.`],
+        ['V_B = 0 (אדמה מדומה).', `${L}V_B = 0${P} (אדמה מדומה).`],
+        ['מתוך X_C = 1/(ωC)', `מתוך ${L}X_C = 1/(ωC)${P}`],
+        ['מחברים לאדמה (V_i = 0). מה קורה?', `מחברים לאדמה (${L}V_i = 0${P}). מה קורה?`],
+        ['V_BE = 0.7 V ולכן', `${L}V_BE = 0.7 V${P} ולכן`],
+        ['התנגדות החיישן היא R_S = 4.7 kΩ.', `התנגדות החיישן היא ${L}R_S = 4.7 kΩ${P}.`],
+        ['קריאת מד המתח היא 80 V.', 'קריאת מד המתח היא 80 V.'],
+        [`כש-${L}V_CE = 0${P}:`, `כש-${L}${L}V_CE = 0${P}${P}:`],
+      ];
+      cases.forEach(([a, b]) => ok(I(a) === b, `isoEq: ${JSON.stringify(a)} -> ${JSON.stringify(I(a))}`));
+      ok(Core.symHtml('הוא V_1 = 5 V.') === `הוא ${L}<bdi dir="ltr">V<sub>1</sub></bdi> = 5 V${P}.`, 'symHtml isolates the expression and keeps the subscript');
+    }
     // מ-v2.3: כרטיס = סמל, כותרת ותגיות; התיאור המלא במסך ההגדרות של המודול
     for (const a of land.querySelectorAll('a.card')) {
       const m = a.getAttribute('href').split('/')[0];
