@@ -22,85 +22,376 @@
 <meta property="og:image:alt" content="הלוגו של CircuitGym">
 <meta name="twitter:card" content="summary_large_image">
 <style>
-  :root { --bg: #f4f6f9; --card: #fff; --fg: #1f2937; --muted: #6b7280; --line: #d9dee6; --accent: #1d4ed8; --accent-soft: #e8efff; }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--fg);
-         font-family: "Segoe UI", Arial, Helvetica, sans-serif; font-size: 17px; line-height: 1.5; }
-  header { background: var(--accent); color: #fff; padding: 12px 16px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
-  header h1 { margin: 0; font-size: 20px; font-weight: 600; }
-  header:has(.brand) { align-items: center; }
-  header h1.brand { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 14px; }
-  header .wordmark { display: block; height: 40px; width: auto; }
-  header .sub { font-size: 18px; font-weight: 500; }
-  header .ver { font-size: 13px; opacity: .85; }
-  main { max-width: 820px; margin: 0 auto; padding: 16px; }
-  .intro { color: var(--muted); margin: 4px 0 16px; }
-  .chapter { font-size: 19px; margin: 22px 0 10px; padding-bottom: 6px; border-bottom: 2px solid var(--line); }
-  .chapter:first-of-type { margin-top: 6px; }
-  .topics { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
-  .card { display: flex; align-items: center; gap: 14px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px;
-          color: inherit; text-decoration: none; transition: border-color .15s, box-shadow .15s; }
-  .card:hover, .card:focus-visible { border-color: var(--accent); box-shadow: 0 2px 10px rgba(29, 78, 216, .12); outline: none; }
-  .card .ic { flex: 0 0 60px; height: 60px; border-radius: 10px; background: var(--accent-soft); display: flex; align-items: center; justify-content: center; }
-  .card .ic * { fill: none; stroke: var(--fg); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-  .card .ic .a { stroke: var(--accent); }
-  .card .ic .af { fill: var(--accent); stroke: none; }
-  .card .cb { min-width: 0; }
-  .card h2 { margin: 0 0 6px; font-size: 17px; line-height: 1.3; color: var(--accent); }
-  .tags { display: flex; flex-wrap: wrap; gap: 4px 6px; }
-  .tag { font-size: 13px; line-height: 1.45; padding: 1px 9px; border-radius: 999px; background: var(--accent-soft); color: #1e3a8a; white-space: nowrap; }
-  footer { text-align: center; color: var(--muted); font-size: 13px; padding: 18px 16px 24px; }
-  [dir=ltr] { unicode-bidi: isolate; }
+/* =========================================================
+   CircuitGym · דף הבית (עיצוב מ-Claude Design, מ-v2.3.1)
+   כל הצבעים, הגדלים והריווחים כמשתנים כאן.
+   ========================================================= */
+:root {
+  /* צבעים */
+  --c-brand:        #1d4ed8;  /* כחול ראשי: header, hover, focus */
+  --c-brand-tint:   #eef3ff;  /* רקע ריבוע הסמל */
+  --c-accent:       #ea7a3a;  /* כתום (מהלוגו): החלק "הפעיל" בסמל */
+  --c-accent-on-brand: #ffd2b5; /* הכתום כשהרקע כחול (hover) */
+  --c-bg:           #f5f7fb;  /* רקע הדף */
+  --c-surface:      #ffffff;  /* רקע כרטיס */
+  --c-border:       #dbe2ec;  /* מסגרת כרטיס / קווי הפרדה */
+  --c-ink:          #0f172a;  /* טקסט ראשי */
+  --c-muted:        #5b6578;  /* footer */
+  --c-arrow:        #94a3b8;  /* חץ במצב רגיל */
+  --c-tag-bg:       #f1f5f9;
+  --c-tag-ink:      #334155;
+  --c-on-brand:     #ffffff;
+  --c-on-brand-soft: rgba(255,255,255,.16);
+  --c-on-brand-line: rgba(255,255,255,.35);
+  --shadow-hover:   0 12px 28px rgba(29,78,216,.14);
+
+  /* טיפוגרפיה */
+  --font: system-ui, -apple-system, "Segoe UI", "Noto Sans Hebrew", "Arial Hebrew", Arial, sans-serif;
+  --fs-site:     14px;   /* "אתר תרגול אלקטרוניקה" */
+  --fs-version:  12px;
+  --fs-chapter:  19px;
+  --fs-title:    17px;   /* כותרת נושא */
+  --fs-tag:      12.5px;
+  --fs-footer:   13px;
+
+  /* מידות */
+  --header-h:    60px;
+  --logo-h:      24px;
+  --content-max: 900px;
+  --gutter:      16px;   /* שוליים צידיים */
+  --icon-box:    52px;
+  --icon-size:   30px;
+  --card-min-h:  88px;
+  --radius-card: 16px;
+  --radius-icon: 13px;
+
+  /* ריווחים */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 44px;
+
+  --gap-cards:    10px;
+  --gap-chapters: 30px;
+  --focus-ring:   3px solid var(--c-brand);
+  --ease: .15s ease;
+}
+
+@media (min-width: 640px) {
+  :root {
+    --header-h:   72px;
+    --logo-h:     30px;
+    --fs-site:    17px;
+    --fs-version: 13px;
+    --fs-chapter: 22px;
+    --fs-title:   20px;
+    --fs-tag:     13px;
+    --icon-box:   60px;
+    --icon-size:  34px;
+    --card-min-h: 200px;
+    --radius-card: 18px;
+    --radius-icon: 15px;
+    --gap-cards:  16px;
+    --gap-chapters: 44px;
+  }
+}
+
+/* ---------- בסיס ---------- */
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font);
+  color: var(--c-ink);
+  background: var(--c-bg);
+  line-height: 1.4;
+}
+.wrap {
+  width: 100%;
+  max-width: calc(var(--content-max) + 2 * var(--gutter));
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* ---------- Header ---------- */
+.site-header { background: var(--c-brand); color: var(--c-on-brand); }
+.site-header .wrap {
+  min-height: var(--header-h);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.logo { display: block; height: var(--logo-h); width: auto; flex: none; }
+.divider { width: 1px; height: calc(var(--logo-h) - 2px); background: var(--c-on-brand-line); flex: none; }
+.site-name { font-size: var(--fs-site); font-weight: 500; min-width: 0; }
+.version {
+  margin-inline-start: auto;
+  flex: none;
+  font-size: var(--fs-version);
+  line-height: 1;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: var(--c-on-brand-soft);
+}
+@media (max-width: 359px) { .divider, .site-name { display: none; } }
+
+/* ---------- פרקים ---------- */
+main { flex: 1 0 auto; }
+main .wrap {
+  padding-block: var(--space-5) var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-chapters);
+}
+@media (min-width: 640px) { main .wrap { padding-block: var(--space-7) 56px; } }
+
+.chapter { display: flex; flex-direction: column; gap: var(--space-3); }
+@media (min-width: 640px) { .chapter { gap: var(--space-4); } }
+.chapter-title {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--fs-chapter);
+  font-weight: 700;
+}
+.chapter-title::after { content: ""; flex: 1; height: 1px; background: var(--c-border); }
+
+/* ---------- רשת הנושאים ---------- */
+.topics {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--gap-cards);
+}
+@media (min-width: 640px) {
+  .topics { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+}
+.topics > li { display: flex; }
+
+/* ---------- כרטיס נושא ---------- */
+.card {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: var(--card-min-h);
+  padding: 14px;
+  text-decoration: none;
+  color: var(--c-ink);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-card);
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color var(--ease), box-shadow var(--ease), transform var(--ease);
+}
+.card-icon {
+  width: var(--icon-box);
+  height: var(--icon-box);
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-icon);
+  background: var(--c-brand-tint);
+  color: var(--c-brand);
+  --acc: var(--c-accent);
+  transition: background var(--ease), color var(--ease);
+}
+.card-icon svg {
+  width: var(--icon-size);
+  height: var(--icon-size);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.card-icon .acc { stroke: var(--acc); }
+.card-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.card-title { font-size: var(--fs-title); font-weight: 700; line-height: 1.3; }
+.tags { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 5px; }
+.tags li {
+  font-size: var(--fs-tag);
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--c-tag-bg);
+  color: var(--c-tag-ink);
+  white-space: nowrap;
+}
+.card-arrow {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  color: var(--c-arrow);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform var(--ease), color var(--ease);
+}
+
+/* מחשב: כרטיס אנכי */
+@media (min-width: 640px) {
+  .card { flex-direction: column; align-items: stretch; gap: var(--space-4); padding: 22px; }
+  .card-icon svg { stroke-width: 1.7; }
+  .card-body { gap: var(--space-4); }
+  .card-body .tags { margin-top: auto; gap: 6px; }
+  .tags li { padding: 5px 10px; }
+  .card-arrow { position: absolute; top: 24px; left: 22px; width: 22px; height: 22px; }
+}
+
+/* ---------- מצבים ---------- */
+.card:active { border-color: var(--c-brand); transform: scale(.985); }
+.card:active .card-icon { background: var(--c-brand); color: var(--c-on-brand); --acc: var(--c-accent-on-brand); }
+
+@media (hover: hover) {
+  .card:hover {
+    border-color: var(--c-brand);
+    box-shadow: var(--shadow-hover);
+    transform: translateY(-3px);
+  }
+  .card:hover .card-icon { background: var(--c-brand); color: var(--c-on-brand); --acc: var(--c-accent-on-brand); }
+  .card:hover .card-arrow { color: var(--c-brand); transform: translateX(-5px); }
+}
+
+.card:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 3px;
+  border-color: var(--c-brand);
+}
+.card:focus-visible .card-icon { background: var(--c-brand); color: var(--c-on-brand); --acc: var(--c-accent-on-brand); }
+
+@media (prefers-reduced-motion: reduce) {
+  .card, .card-icon, .card-arrow { transition: none; }
+  .card:hover, .card:active, .card:hover .card-arrow { transform: none; }
+}
+
+/* ---------- Footer ---------- */
+.site-footer {
+  border-top: 1px solid #e2e8f0;
+  padding: 20px var(--gutter) 28px;
+  text-align: center;
+  font-size: var(--fs-footer);
+  color: var(--c-muted);
+}
 </style>
 </head>
 <body>
-<header>
-  <h1 class="brand"><img class="wordmark" src="assets/logo-lockup.svg" alt="CircuitGym" width="198" height="40"><span class="sub">אתר תרגול אלקטרוניקה</span></h1>
-  <span class="ver" dir="ltr" id="ver"></span>
+
+<header class="site-header">
+  <div class="wrap">
+    <img class="logo" src="assets/logo-lockup.svg" alt="CircuitGym" width="149" height="30">
+    <span class="divider" aria-hidden="true"></span>
+    <span class="site-name">אתר תרגול אלקטרוניקה</span>
+    <span class="version"><bdi dir="ltr" id="ver"></bdi></span>
+  </div>
 </header>
 
 <main>
-  <p class="intro">בחרו נושא לתרגול:</p>
+  <div class="wrap">
+    <h1 class="visually-hidden">בחירת נושא לתרגול</h1>
 
-  <!-- נושא חדש: מעתיקים כרטיס אחד לפרק המתאים ומשנים סמל (SVG קטן, 48x48), כותרת, תגיות וקישור (תיקייה/index.html). התיאור המלא נמצא במסך ההגדרות של המודול -->
-  <h2 class="chapter">חשמל</h2>
-  <nav class="topics" aria-label="נושאים בחשמל">
-    <a class="card" href="ohm/index.html">
-      <span class="ic" aria-hidden="true"><svg viewBox="0 0 48 48" width="44" height="44"><path d="M4 24h6M10 14v20M38 14v20M38 24h6"/><path d="M10 14h4l2-4 3 8 3-8 3 8 3-8 3 8 2-4h5"/><path class="a" d="M10 34h4l2-4 3 8 3-8 3 8 3-8 3 8 2-4h5"/></svg></span>
-      <span class="cb"><h2>מעגל טורי, מקבילי ומעורב</h2><span class="tags"><span class="tag">חוק אוהם</span><span class="tag">התנגדות שקולה</span><span class="tag">הספק</span><span class="tag">5 רמות</span></span></span>
-    </a>
-    <a class="card" href="mesh/index.html">
-      <span class="ic" aria-hidden="true"><svg viewBox="0 0 48 48" width="44" height="44"><rect x="5" y="9" width="38" height="30" rx="1"/><path d="M24 9v30"/><path class="a" d="M10.5 24a4 4 0 1 1 4 4"/><path class="af" d="M11.5 29.5l3-1.5-3-2z"/><path class="a" d="M29.5 24a4 4 0 1 1 4 4"/><path class="af" d="M30.5 29.5l3-1.5-3-2z"/></svg></span>
-      <span class="cb"><h2>זרמי חוגים</h2><span class="tags"><span class="tag">2 חוגים</span><span class="tag"><bdi dir="ltr">2–3</bdi> מקורות</span><span class="tag">מדי זרם</span><span class="tag">5 רמות</span></span></span>
-    </a>
-    <a class="card" href="ac/index.html">
-      <span class="ic" aria-hidden="true"><svg viewBox="0 0 48 48" width="44" height="44"><circle cx="24" cy="24" r="17"/><path class="a" d="M12 24q3-10 6 0t6 0t6 0t6 0"/></svg></span>
-      <span class="cb"><h2>מעגלי זרם חילופין טוריים</h2><span class="tags"><span class="tag"><bdi dir="ltr">RL · RC · RLC</bdi></span><span class="tag">עכבה וזווית</span><span class="tag">משקף תנודות</span><span class="tag">5 רמות</span></span></span>
-    </a>
-  </nav>
+    <!-- נושא חדש: מעתיקים <li> של כרטיס לפרק המתאים ומשנים קישור (תיקייה/index.html), סמל (SVG, viewBox 0 0 32 32; החלק הפעיל עם class="acc"),
+         כותרת ותגיות. התיאור המלא נמצא במסך ההגדרות של המודול ("מה מתרגלים כאן"). -->
+    <!-- ===== פרק: חשמל ===== -->
+    <section class="chapter" aria-labelledby="ch-electricity">
+      <h2 class="chapter-title" id="ch-electricity">חשמל</h2>
+      <ul class="topics">
 
-  <h2 class="chapter">אלקטרוניקה</h2>
-  <nav class="topics" aria-label="נושאים באלקטרוניקה">
-    <a class="card" href="opamp/index.html">
-      <span class="ic" aria-hidden="true"><svg viewBox="0 0 48 48" width="44" height="44"><path d="M12 7v34l29-17z"/><path d="M3 16h9M3 32h9M41 24h5"/><path d="M15 16h5"/><path class="a" d="M15 32h5M17.5 29.5v5"/></svg></span>
-      <span class="cb"><h2>מגברי שרת</h2><span class="tags"><span class="tag">מהפך ועוקב</span><span class="tag">מסכם ומחסר</span><span class="tag">קסקדה</span><span class="tag">בסיסי ומתקדם</span></span></span>
-    </a>
-    <a class="card" href="comparator/index.html">
-      <span class="ic" aria-hidden="true"><svg viewBox="0 0 48 48" width="44" height="44"><path d="M5 9v30l22-15z"/><path d="M27 24h9v3"/><path d="M31 27h10l-5 8z"/><path d="M31 35h10"/><path class="a" d="M41 30l4-4M43 34l4-4"/></svg></span>
-      <span class="cb"><h2>משווים וחיישנים</h2><span class="tags"><span class="tag">מתח ייחוס</span><span class="tag">נורית LED</span><span class="tag">חיישנים</span><span class="tag">5 רמות</span></span></span>
-    </a>
-    <a class="card" href="transistor/index.html">
-      <span class="ic" aria-hidden="true"><svg viewBox="0 0 48 48" width="44" height="44"><circle cx="27" cy="24" r="16"/><path d="M4 24h14M18 14v20M18 19l12-8V3M18 29l12 8v8"/><path class="af" d="M30 37l-6.5-.5 3-4.5z"/></svg></span>
-      <span class="cb"><h2>טרנזיסטור</h2><span class="tags"><span class="tag">נקודת עבודה</span><span class="tag">מגבר</span><span class="tag">מתג</span><span class="tag">בסיסי ומתקדם</span></span></span>
-    </a>
-    <a class="card" href="filters/index.html">
-      <span class="ic" aria-hidden="true"><svg viewBox="0 0 48 48" width="44" height="44"><path d="M6 40h37M6 40V6"/><path d="M6 36h5V12h31" stroke-dasharray="3 3"/><path class="a" d="M11 36C15 17 22 13 42 13"/></svg></span>
-      <span class="cb"><h2>מסננים</h2><span class="tags"><span class="tag"><bdi dir="ltr">LP · HP</bdi></span><span class="tag">קבוע זמן</span><span class="tag">מתח המוצא</span><span class="tag">4 רמות</span></span></span>
-    </a>
-  </nav>
+        <li><a class="card" href="ohm/index.html">
+          <span class="card-icon"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M8 10V22M24 10V22M8 10H11L12.25 7.5L14.75 12.5L17.25 7.5L19.75 12.5L21 10H24M8 22H11L12.25 19.5L14.75 24.5L17.25 19.5L19.75 24.5L21 22H24"/><path class="acc" d="M3 16H8M24 16H29"/></svg></span>
+          <span class="card-body">
+            <span class="card-title">מעגל טורי, מקבילי ומעורב</span>
+            <ul class="tags"><li>חוק אוהם</li><li>התנגדות שקולה</li><li>הספק</li></ul>
+          </span>
+          <svg class="card-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 6L5 12L11 18"/></svg>
+        </a></li>
+
+        <li><a class="card" href="mesh/index.html">
+          <span class="card-icon"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M3 7H29V25H3ZM16 7V25"/><path class="acc" d="M9.5 12.5A3.5 3.5 0 1 0 13 16M11.6 17.4L13 16L14.4 17.4M22.5 12.5A3.5 3.5 0 1 0 26 16M24.6 17.4L26 16L27.4 17.4"/></svg></span>
+          <span class="card-body">
+            <span class="card-title">זרמי חוגים</span>
+            <ul class="tags"><li>2 חוגים</li><li><bdi dir="ltr">2–3</bdi> מקורות</li></ul>
+          </span>
+          <svg class="card-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 6L5 12L11 18"/></svg>
+        </a></li>
+
+        <li><a class="card" href="ac/index.html">
+          <span class="card-icon"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3V7M16 25V29M7 16A9 9 0 1 0 25 16A9 9 0 1 0 7 16"/><path class="acc" d="M10.5 16C12 11.5 14.5 11.5 16 16S20 20.5 21.5 16"/></svg></span>
+          <span class="card-body">
+            <span class="card-title">מעגלי זרם חילופין טוריים</span>
+            <ul class="tags"><li><bdi dir="ltr">RL · RC · RLC</bdi></li><li>עכבה וזווית</li><li>משקף תנודות</li></ul>
+          </span>
+          <svg class="card-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 6L5 12L11 18"/></svg>
+        </a></li>
+
+      </ul>
+    </section>
+
+    <!-- ===== פרק: אלקטרוניקה ===== -->
+    <section class="chapter" aria-labelledby="ch-electronics">
+      <h2 class="chapter-title" id="ch-electronics">אלקטרוניקה</h2>
+      <ul class="topics">
+
+        <li><a class="card" href="opamp/index.html">
+          <span class="card-icon"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M9 6L25 16L9 26ZM25 16H30M3 11H9M3 21H9"/><path class="acc" d="M11.5 11H14.5M11.5 21H14.5M13 19.5V22.5"/></svg></span>
+          <span class="card-body">
+            <span class="card-title">מגברי שרת</span>
+            <ul class="tags"><li>מהפך ועוקב</li><li>מסכם ומחסר</li><li>קסקדה</li></ul>
+          </span>
+          <svg class="card-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 6L5 12L11 18"/></svg>
+        </a></li>
+
+        <li><a class="card" href="comparator/index.html">
+          <span class="card-icon"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M3 16H5M5 9L15 16L5 23ZM15 16H18M18 11.5L25 16L18 20.5ZM25 11.5V20.5M25 16H30"/><path class="acc" d="M22 9.5L25 6.5M23.3 6.5H25V8.2M26 11L29 8M27.3 8H29V9.7"/></svg></span>
+          <span class="card-body">
+            <span class="card-title">משווים וחיישנים</span>
+            <ul class="tags"><li>מתח ייחוס</li><li>נורית <bdi dir="ltr">LED</bdi></li><li>חיישנים</li></ul>
+          </span>
+          <svg class="card-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 6L5 12L11 18"/></svg>
+        </a></li>
+
+        <li><a class="card" href="transistor/index.html">
+          <span class="card-icon"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M27 16A10 10 0 1 0 7 16A10 10 0 1 0 27 16M3 16H12M12 10V22M12 13.5L20 9V3M12 18.5L20 23V29"/><path class="acc" d="M14.5 22L18 21.9L16.3 18.8"/></svg></span>
+          <span class="card-body">
+            <span class="card-title">טרנזיסטור</span>
+            <ul class="tags"><li>נקודת עבודה</li><li>מגבר</li><li>מתג</li></ul>
+          </span>
+          <svg class="card-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 6L5 12L11 18"/></svg>
+        </a></li>
+
+        <li><a class="card" href="filters/index.html">
+          <span class="card-icon"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M5 4V27H29M5 24H8V8H28"/><path class="acc" d="M8 24C11.5 13.5 17 10.5 28 10"/></svg></span>
+          <span class="card-body">
+            <span class="card-title">מסננים</span>
+            <ul class="tags"><li><bdi dir="ltr">LP · HP</bdi></li><li>קבוע זמן</li><li>מתח המוצא</li></ul>
+          </span>
+          <svg class="card-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 6L5 12L11 18"/></svg>
+        </a></li>
+
+      </ul>
+    </section>
+  </div>
 </main>
 
-<footer>נוצר על ידי ראשון דיבקר בעזרת Claude · <span dir="ltr" id="ver2"></span></footer>
+<footer class="site-footer">
+  נוצר על ידי ראשון דיבקר בעזרת Claude · <bdi dir="ltr" id="ver2"></bdi>
+</footer>
 
 <script>
   // גרסת האתר. חייבת להיות זהה ל-VERSION בכל מודול (נבדק ב-ohm/tests.html)
