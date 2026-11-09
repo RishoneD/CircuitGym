@@ -25,16 +25,20 @@
 </head>
 <body>
 <header>
-  <a class="mark" href="../index.html" aria-label="CircuitGym - לדף הראשי"><img src="../assets/logo-symbol.svg" alt="" width="27" height="30"></a>
-  <h1>תרגול מעגלי זרם חילופין טוריים (RC, RL, RLC)</h1>
-  <span class="ver" dir="ltr" id="ver"></span>
-  <a class="home" href="../index.html">→ לדף הראשי</a>
+  <div class="wrap">
+    <a class="mark" href="../index.html" aria-label="CircuitGym - לדף הראשי"><img src="../assets/logo-symbol.svg" alt="" width="25" height="28"></a>
+    <span class="divider" aria-hidden="true"></span>
+    <span class="topic" aria-hidden="true"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3V7M16 25V29M7 16A9 9 0 1 0 25 16A9 9 0 1 0 7 16"/><path class="acc" d="M10.5 16C12 11.5 14.5 11.5 16 16S20 20.5 21.5 16"/></svg></span>
+    <h1>מעגלי זרם חילופין טוריים</h1>
+    <span class="version"><bdi dir="ltr" id="ver"></bdi></span>
+    <a class="home" href="../index.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12H19M13 6L19 12L13 18"/></svg>דף הבית</a>
+  </div>
 </header>
 
 <main>
   <section id="setup" class="card">
     <h2>הגדרות תרגול</h2>
-    <p class="muted">מה מתרגלים כאן: היגב, עכבה וזווית, זרם ומתחים, תדירות ומהירות זוויתית, מקור כביטוי u(t), ומשקף תנודות ומחולל אותות (ברמות 4–5). תרגילים אקראיים ב-5 רמות קושי, עם פתרון מלא.</p>
+    <p class="muted">מה מתרגלים כאן: היגב, עכבה וזווית, זרם ומתחים, תדירות ומהירות זוויתית, מקור כביטוי u(t), ומשקף תנודות ומחולל אותות (ברמות <bdi dir="ltr">4–5</bdi>). תרגילים אקראיים ב-5 רמות קושי, עם פתרון מלא.</p>
     <fieldset>
       <legend>סוג מעגל (אפשר לבחור כמה)</legend>
       <label class="opt"><input type="checkbox" id="tRL" checked> <bdi dir="ltr">RL</bdi></label>
@@ -43,7 +47,7 @@
     </fieldset>
     <fieldset>
       <legend>מכשירי מדידה</legend>
-      <label class="opt"><input type="checkbox" id="scope" checked> שילוב משקף תנודות ומחולל אותות בחלק מהתרגילים (ברמות 4–5)</label>
+      <label class="opt"><input type="checkbox" id="scope" checked> שילוב משקף תנודות ומחולל אותות בחלק מהתרגילים (ברמות <bdi dir="ltr">4–5</bdi>)</label>
     </fieldset>
     <label class="row">רמת קושי התחלתית:
       <select id="level">

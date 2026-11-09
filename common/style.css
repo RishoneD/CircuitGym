@@ -1,32 +1,62 @@
 /* CircuitGym: עיצוב משותף לכל המודולים */
 :root {
-  --bg: #f4f6f9; --card: #fff; --fg: #1f2937; --muted: #6b7280; --line: #d9dee6;
-  --accent: #1d4ed8; --accent-soft: #e8efff; --ok: #15803d; --ok-soft: #e7f6ec;
+  /* מ-v2.3.1: אותם צבעים וגופן כמו בדף הבית (העיצוב מ-Claude Design) */
+  --bg: #f5f7fb; --card: #fff; --fg: #0f172a; --muted: #5b6578; --line: #dbe2ec;
+  --accent: #1d4ed8; --accent-dark: #1e40af; --accent-soft: #eef3ff; --orange-on-brand: #ffd2b5;
+  --on-brand-soft: rgba(255,255,255,.16); --on-brand-line: rgba(255,255,255,.35);
+  --tag-bg: #f1f5f9; --tag-ink: #334155;
+  --font: system-ui, -apple-system, "Segoe UI", "Noto Sans Hebrew", "Arial Hebrew", Arial, sans-serif;
+  --ok: #15803d; --ok-soft: #e7f6ec;
   --bad: #b42318; --bad-soft: #fdecea; --warn: #9a6700; --warn-soft: #fff6db; --unk: #d9480f;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg);
-       font-family: "Segoe UI", Arial, Helvetica, sans-serif; font-size: 17px; line-height: 1.5; }
-header { background: var(--accent); color: #fff; padding: 12px 16px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
-header h1 { margin: 0; font-size: 20px; font-weight: 600; }
-header .mark { align-self: center; display: block; line-height: 0; }
-header .mark img { display: block; height: 30px; width: auto; }
-header .ver { font-size: 13px; opacity: .85; }
-header .home { margin-inline-start: auto; color: #fff; font-size: 15px; white-space: nowrap; }
+       font-family: var(--font); font-size: 17px; line-height: 1.5; }
+/* כותרת עליונה, כמו בדף הבית: סמל הלוגו, קו מפריד, סמל הנושא, שם הנושא, תגית גרסה וכפתור לדף הבית */
+header { background: var(--accent); color: #fff; }
+header .wrap { max-width: 852px; margin: 0 auto; padding: 0 16px; min-height: 60px; display: flex; align-items: center; gap: 10px; }
+header .mark { flex: none; display: block; line-height: 0; }
+header .mark img { display: block; height: 28px; width: auto; }
+header .divider { flex: none; width: 1px; height: 26px; background: var(--on-brand-line); }
+header .topic { flex: none; width: 36px; height: 36px; border-radius: 10px; background: var(--on-brand-soft); display: grid; place-items: center; }
+header .topic svg { width: 24px; height: 24px; fill: none; stroke: #fff; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+header .topic .acc { stroke: var(--orange-on-brand); }
+header h1 { flex: 1; min-width: 0; margin: 0; font-size: 17px; font-weight: 700; line-height: 1.25; }
+header .version { flex: none; font-size: 12px; line-height: 1; padding: 5px 9px; border-radius: 999px; background: var(--on-brand-soft); }
+header .home { flex: none; display: inline-flex; align-items: center; gap: 6px; color: #fff; text-decoration: none; font-size: 14px; line-height: 1;
+               padding: 7px 12px; border: 1px solid var(--on-brand-line); border-radius: 999px; white-space: nowrap; transition: background .15s; }
+header .home svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+header .home:hover { background: var(--on-brand-soft); }
+@media (min-width: 640px) {
+  header .wrap { min-height: 72px; gap: 12px; }
+  header .mark img { height: 32px; }
+  header h1 { font-size: 20px; }
+  header .version { font-size: 13px; }
+}
+/* בטלפון צר: הגרסה מוצגת ב-footer */
+@media (max-width: 479px) { header .divider, header .version { display: none; } }
 main { max-width: 820px; margin: 0 auto; padding: 16px; }
-.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
-h2 { margin: 0 0 12px; font-size: 19px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 20px; }
+h2 { margin: 0 0 12px; font-size: 19px; font-weight: 700; }
 h3 { margin: 18px 0 8px; font-size: 17px; }
-fieldset { border: 1px solid var(--line); border-radius: 10px; margin: 0 0 14px; padding: 10px 14px; }
+fieldset { border: 1px solid var(--line); border-radius: 12px; margin: 0 0 14px; padding: 10px 14px; }
 legend { padding: 0 6px; color: var(--muted); font-size: 15px; }
 .opt { display: inline-flex; align-items: center; gap: 6px; margin-inline-end: 18px; cursor: pointer; }
 .opt input, .switch input { width: 18px; height: 18px; }
 .row { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; }
 .switch { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; cursor: pointer; }
-select, input[type=text] { font: inherit; padding: 6px 8px; border: 1px solid #b8c0cc; border-radius: 8px; background: #fff; color: var(--fg); }
-button { font: inherit; border-radius: 8px; padding: 8px 16px; border: 1px solid var(--accent);
-         background: #fff; color: var(--accent); cursor: pointer; }
+select, input[type=text] { font: inherit; padding: 6px 8px; border: 1px solid #b8c0cc; border-radius: 10px; background: #fff; color: var(--fg); }
+button { font: inherit; border-radius: 10px; padding: 8px 16px; border: 1px solid var(--accent);
+         background: #fff; color: var(--accent); cursor: pointer; transition: background .15s, border-color .15s; }
 button.primary { background: var(--accent); color: #fff; }
+@media (hover: hover) {
+  button:not(:disabled):hover { background: var(--accent-soft); }
+  button.primary:not(:disabled):hover { background: var(--accent-dark); border-color: var(--accent-dark); }
+  button.link:not(:disabled):hover { background: none; }
+}
+/* מצב focus ברור במקלדת, כמו בדף הבית */
+a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+header a:focus-visible { outline-color: #fff; }
 button:disabled { opacity: .45; cursor: default; }
 button.link { border: none; background: none; padding: 4px 0; text-decoration: underline; }
 .note { color: var(--muted); font-size: 15px; min-height: 1.2em; margin: 4px 0 12px; }
@@ -34,10 +64,10 @@ button.link { border: none; background: none; padding: 4px 0; text-decoration: u
 .badge { background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 2px 12px; font-weight: 600; }
 .muted { color: var(--muted); font-size: 15px; }
 .q { font-size: 18px; margin: 6px 0 10px; }
-.circuit { overflow-x: auto; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 6px; text-align: center; }
+.circuit { overflow-x: auto; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 6px; text-align: center; }
 .circuit svg { width: 100%; height: auto; display: block; margin: 0 auto; }
 .givens { margin: 10px 0 6px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.chip { background: #f1f3f6; border-radius: 6px; padding: 1px 8px; font-size: 16px; white-space: nowrap; }
+.chip { background: var(--tag-bg); color: var(--tag-ink); border-radius: 999px; padding: 2px 10px; font-size: 16px; white-space: nowrap; }
 .chip.unk { background: #fff0e6; color: var(--unk); font-weight: 600; }
 .ans { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 14px 0 8px; }
 .ansbox { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
@@ -54,7 +84,7 @@ button.link { border: none; background: none; padding: 4px 0; text-decoration: u
 .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
 .actions .actions { margin-top: 0; }
 .seed { color: #a0a7b3; font-size: 12px; text-align: left; margin-top: 10px; }
-footer { text-align: center; color: var(--muted); font-size: 13px; padding: 18px 16px 24px; }
+footer { text-align: center; color: var(--muted); font-size: 13px; padding: 20px 16px 28px; border-top: 1px solid #e2e8f0; margin-top: 12px; }
 bdi[dir=ltr], [dir=ltr] { unicode-bidi: isolate; }
 [hidden] { display: none !important; }
 

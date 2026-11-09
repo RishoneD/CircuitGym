@@ -25,10 +25,14 @@
 </head>
 <body>
 <header>
-  <a class="mark" href="../index.html" aria-label="CircuitGym - לדף הראשי"><img src="../assets/logo-symbol.svg" alt="" width="27" height="30"></a>
-  <h1>תרגול משווים וחיישנים</h1>
-  <span class="ver" dir="ltr" id="ver"></span>
-  <a class="home" href="../index.html">→ לדף הראשי</a>
+  <div class="wrap">
+    <a class="mark" href="../index.html" aria-label="CircuitGym - לדף הראשי"><img src="../assets/logo-symbol.svg" alt="" width="25" height="28"></a>
+    <span class="divider" aria-hidden="true"></span>
+    <span class="topic" aria-hidden="true"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M3 16H5M5 9L15 16L5 23ZM15 16H18M18 11.5L25 16L18 20.5ZM25 11.5V20.5M25 16H30"/><path class="acc" d="M22 9.5L25 6.5M23.3 6.5H25V8.2M26 11L29 8M27.3 8H29V9.7"/></svg></span>
+    <h1>משווים וחיישנים</h1>
+    <span class="version"><bdi dir="ltr" id="ver"></bdi></span>
+    <a class="home" href="../index.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12H19M13 6L19 12L13 18"/></svg>דף הבית</a>
+  </div>
 </header>
 
 <main>
@@ -36,7 +40,7 @@
     <h2>הגדרות תרגול</h2>
     <p class="muted">מה מתרגלים כאן: משווה עם מתח ייחוס ממחלק, נורית LED במוצא, וחיישנים (אור, טמפרטורה, כוח, זווית וקול) עם אופיין בגרף: מצב הנורית, תחומי הפעולה, זרם המוצא, וגל משולש במבוא. 5 רמות קושי.</p>
     <fieldset>
-      <legend>חיישנים (ברמות 3–4; אפשר לבחור כמה)</legend>
+      <legend>חיישנים (ברמות <bdi dir="ltr">3–4</bdi>; אפשר לבחור כמה)</legend>
       <label class="opt"><input type="checkbox" id="sLDR" checked> חיישן אור (LDR)</label>
       <label class="opt"><input type="checkbox" id="sRTC" checked> טמפרטורה (RTC)</label>
       <label class="opt"><input type="checkbox" id="sPTC" checked> טמפרטורה (PTC)</label>
